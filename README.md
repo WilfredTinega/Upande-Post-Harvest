@@ -163,3 +163,4 @@ Code layout:
 - `src/scan/ScanField.tsx` — Honeywell + camera scan input
 - `src/services/scan-api.ts` — typed wrappers for the backend endpoints
 - `src/services/api.ts` — axios client with session cookie + silent re-login
+# Upande-Post-Harvest
