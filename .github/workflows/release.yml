@@ -328,10 +328,17 @@ jobs:
           npm version "${{ steps.version.outputs.version }}" \
             --no-git-tag-version --allow-same-version
           git add app.json package.json package-lock.json
-          git commit -m "chore(release): ${{ steps.version.outputs.version }} [skip ci]"
+          # The first release keeps the version already in app.json (1.0.0), and
+          # a re-run after a failed publish has nothing new either. Then there is
+          # nothing to commit: tag the current commit instead of failing.
+          if git diff --cached --quiet; then
+            echo "Version ${{ steps.version.outputs.version }} is already committed; tagging HEAD."
+          else
+            git commit -m "chore(release): ${{ steps.version.outputs.version }} [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
           git tag -a "${{ steps.version.outputs.tag }}" \
             -m "Tambuzi Post Harvest ${{ steps.version.outputs.version }}"
-          git push origin HEAD:${{ github.ref_name }}
           git push origin "${{ steps.version.outputs.tag }}"
 
       # Whoever downloads the APK is the one who has to trust it, so the signing
