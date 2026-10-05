@@ -148,7 +148,7 @@ jobs:
       # Must run before prebuild: this is what the APK's embedded manifest
       # carries, and it is how the in-app update check knows which repo to ask.
       # A no-op for the canonical repo, whose app.json already says
-      # WilfredTinega/Post-Harvest; a fork's build points at the fork.
+      # WilfredTinega/Upande-Post-Harvest; a fork's build points at the fork.
       - name: Stamp the source repository into the build
         run: node scripts/stamp-build.mjs --repo "$GITHUB_REPOSITORY"
 

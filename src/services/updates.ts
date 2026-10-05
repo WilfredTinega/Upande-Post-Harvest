@@ -30,7 +30,7 @@ import * as SecureStore from 'expo-secure-store';
 const extra = (Constants.expoConfig?.extra ?? {}) as { githubRepo?: string };
 
 /** `owner/repo` the release workflow publishes to (app.json → expo.extra.githubRepo). */
-export const GITHUB_REPO = extra.githubRepo || 'WilfredTinega/Post-Harvest';
+export const GITHUB_REPO = extra.githubRepo || 'WilfredTinega/Upande-Post-Harvest';
 export const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
 /** Asset prefix the release workflow names every APK with. */
 const APK_PREFIX = 'tambuzi_post_harvest_v';

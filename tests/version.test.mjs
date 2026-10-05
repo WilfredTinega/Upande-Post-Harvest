@@ -75,14 +75,14 @@ const commits = [
   { hash: 'c'.repeat(40), subject: 'tidy things', body: '' },
   { hash: 'd'.repeat(40), subject: 'refactor!: new store', body: '' },
 ].map(parseCommit);
-const notes = releaseNotes('1.0.1', commits, 'v1.0.0', 'WilfredTinega/Post-Harvest');
+const notes = releaseNotes('1.0.1', commits, 'v1.0.0', 'WilfredTinega/Upande-Post-Harvest');
 check('notes group features', notes.includes('### Features') && notes.includes('**scan:** faster QR'));
 check('notes group fixes', notes.includes('### Bug Fixes'));
 check('non-conventional commits land under Other', notes.includes('### Other'));
 check('breaking changes are called out', notes.includes('BREAKING CHANGES'));
 check(
   'notes link the compare view',
-  notes.includes('https://github.com/WilfredTinega/Post-Harvest/compare/v1.0.0...v1.0.1'),
+  notes.includes('https://github.com/WilfredTinega/Upande-Post-Harvest/compare/v1.0.0...v1.0.1'),
 );
 
 console.log(failures.length ? `\n${failures.length} FAILED` : '\nall passed');

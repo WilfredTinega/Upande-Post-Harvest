@@ -32,7 +32,7 @@ cannot be fetched from Pages directly. The split:
 | what | served by | why |
 | --- | --- | --- |
 | the manifest | the Frappe site: `GET https://tambuzi.upande.com/api/method/upande_tambuzi.mobile_api.ota.manifest` (`expo.updates.url`) | reads the `expo-runtime-version` / `expo-platform` headers the client sends, fetches `<otaBaseUrl>/<platform>/<runtime>/manifest.json` from Pages, and returns it with `expo-protocol-version: 1` added |
-| the bundle and assets | GitHub Pages: `https://wilfredtinega.github.io/Post-Harvest/ota/android/<runtime>/…` (`expo.extra.otaBaseUrl`) | asset downloads need no special headers, and the manifest's URLs are absolute |
+| the bundle and assets | GitHub Pages: `https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/<runtime>/…` (`expo.extra.otaBaseUrl`) | asset downloads need no special headers, and the manifest's URLs are absolute |
 
 `updates.url` is fixed and `scripts/version.mjs` never rewrites it. The runtime
 travels in the request header, as the protocol intends. `scripts/publish-ota.mjs`

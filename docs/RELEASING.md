@@ -1,7 +1,7 @@
 # Build & Release
 
 The app is built and released entirely by GitHub Actions
-(`WilfredTinega/Post-Harvest`). There is no Expo account, no EAS credits
+(`WilfredTinega/Upande-Post-Harvest`). There is no Expo account, no EAS credits
 and no manual APK step: the runner does what `eas build` would do, using
 `expo prebuild` plus Gradle. `eas.json` is still in the repo but nothing in this
 pipeline reads it.

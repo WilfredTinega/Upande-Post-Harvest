@@ -99,8 +99,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "githubRepo": "WilfredTinega/Post-Harvest",
-      "otaBaseUrl": "https://wilfredtinega.github.io/Post-Harvest/ota"
+      "githubRepo": "WilfredTinega/Upande-Post-Harvest",
+      "otaBaseUrl": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota"
     }
   }
 }
