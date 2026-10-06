@@ -2,7 +2,7 @@
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 
-const TENANTS = ['karen', 'kikwetu', 'xflora', 'mona', 'tambuzi'];
+const TENANTS = ['karen', 'kikwetu', 'xflora', 'mona'];
 
 // For a given tenant, return import patterns it must not touch.
 function forbiddenForTenant(tenant) {

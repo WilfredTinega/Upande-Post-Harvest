@@ -2,17 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { HttpError } from '@/src/services/api';
 import { scanApi, type Overview } from '@/src/services/scan-api';
+import { userMessage } from '@/src/services/user-message';
 
 /** A reason the figures could not be loaded that an operator (or IT) can act on. */
 function overviewError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   const status = err instanceof HttpError ? err.status : 0;
   if (/not whitelisted|has no attribute|no module named|failed to get method/i.test(msg) || status === 404) {
-    return 'This server does not have the figures update yet (upande_tambuzi setup.get_overview).';
+    return 'Today’s figures are not available on this server.';
   }
-  if (status === 0) return 'No connection to the server.';
   if (status === 403) return 'Not permitted to read today’s figures.';
-  return msg || 'Could not load today’s figures.';
+  return userMessage(err, 'Could not load today’s figures.');
 }
 
 /**

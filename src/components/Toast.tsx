@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { audio } from '@/src/audio';
+import { humanText } from '@/src/services/user-message';
 
 type ToastTone = 'success' | 'error' | 'info';
 
@@ -42,7 +43,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const value = {
     showSuccess: (m: string) => { audio.submit(); show(m, 'success'); },
-    showError: (m: string) => { audio.error(); show(m, 'error'); },
+    showError: (m: string) => { audio.error(); show(humanText(m) ?? 'Something went wrong. Try again.', 'error'); },
     showInfo: (m: string) => show(m, 'info'),
   };
 

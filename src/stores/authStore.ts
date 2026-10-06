@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { storage, StorageKeys } from '@/src/services/storage';
 import { loginToServer } from '@/src/services/auth-api';
 import * as Biometric from '@/src/services/biometric';
+import { userMessage } from '@/src/services/user-message';
 import { reportInstall } from '@/src/services/install-register';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
@@ -65,7 +66,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       set({ hydrated: true, hasSession, instanceUrl, email, fullName, biometricEnabled, biometricLocked });
     } catch (err) {
-      set({ hydrated: true, error: err instanceof Error ? err.message : String(err) });
+      set({ hydrated: true, error: userMessage(err, 'Could not restore the session.') });
     }
   },
 
@@ -85,7 +86,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       reportInstall({ reason: 'login', user: result.email });
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed.';
+      const message = userMessage(err, 'Could not sign in. Try again.');
       set({ status: 'error', error: message });
       return false;
     }
@@ -96,7 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { ok: false, reason: 'unavailable' };
     }
     const auth = await Biometric.authenticate({
-      promptMessage: 'Unlock Tambuzi Post Harvest',
+      promptMessage: 'Unlock Post Harvest',
       fallbackLabel: 'Use password',
       cancelLabel: 'Cancel',
     });

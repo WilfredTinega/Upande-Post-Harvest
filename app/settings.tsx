@@ -12,13 +12,13 @@ import { useScanStore } from '@/src/stores/scanStore';
 import { useToast } from '@/src/components/Toast';
 import { useAuthStore } from '@/src/stores/authStore';
 import * as Biometric from '@/src/services/biometric';
-import { getInstanceByUrl } from '@/src/services/instance-mapper';
 import { useUpdateStore } from '@/src/stores/updateStore';
 import { APP_VERSION } from '@/src/services/app-version';
 import { compareVersions, formatBytes, RELEASES_URL, UPDATE_ERRORS } from '@/src/services/updates';
 import { INSTALL_ERRORS, openUnknownAppSourcesSettings } from '@/src/services/install-apk';
 import { getInstallId } from '@/src/services/install-register';
 import { colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { userMessage } from '@/src/services/user-message';
 
 async function openInBrowser(url?: string | null) {
   try {
@@ -119,7 +119,7 @@ export default function SettingsScreen() {
       if (!moduleReady) {
         Alert.alert(
           'Update needed',
-          'Install the latest build of Tambuzi Post Harvest to enable biometric unlock.',
+          'Install the latest build of Post Harvest to enable biometric unlock.',
         );
         return;
       }
@@ -141,7 +141,7 @@ export default function SettingsScreen() {
       await setBiometricEnabled(!biometricEnabled);
       showSuccess(biometricEnabled ? 'Biometric unlock disabled.' : 'Biometric unlock enabled.');
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Could not update setting.');
+      showError(userMessage(err, 'Could not update setting.'));
     }
   };
 
@@ -194,9 +194,7 @@ export default function SettingsScreen() {
             <Text style={s.userName}>{fullName || email || 'Signed in'}</Text>
             {email ? <Text style={s.userEmail}>{email}</Text> : null}
             {instanceUrl ? (
-              <Text style={s.userMeta}>
-                {getInstanceByUrl(instanceUrl)?.label ?? 'Unrecognised server'} · {instanceUrl}
-              </Text>
+              <Text style={s.userMeta}>{instanceUrl}</Text>
             ) : null}
           </View>
         </View>

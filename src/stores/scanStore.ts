@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { storage, StorageKeys } from '@/src/services/storage';
 import { scanApi } from '@/src/services/scan-api';
 import { isProcessKey, type ProcessKey } from '@/src/scan/processes';
+import { userMessage } from '@/src/services/user-message';
 
 /** Offered when the server has no farms set up (no Warehouse Mapping) or can't be reached. */
 export const DEFAULT_FARMS = ['Burguret', 'Turaco', 'Pendekeza'];
@@ -101,10 +102,9 @@ export const useScanStore = create<ScanState>((set, get) => ({
       }
       set({ loaded: true, rejectionReasons: setup.rejection_reasons ?? [], logo: setup.logo || null, canViewDevices: !!setup.can_view_devices });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not load scan setup.';
       set({
-        error: msg,
-        farmsNotice: `Could not load the farm list (${msg}). Showing the ${
+        error: userMessage(err, 'Could not load scan setup.'),
+        farmsNotice: `Could not load the farm list. Showing the ${
           get().farmsSource === 'cache' ? 'last known' : 'default'
         } farms.`,
       });

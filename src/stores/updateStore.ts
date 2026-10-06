@@ -18,6 +18,7 @@ import {
   type DownloadProgress,
   type InstallErrorKind,
 } from '@/src/services/install-apk';
+import { userMessage } from '@/src/services/user-message';
 
 /**
  * Whether a newer build exists, held app-wide — and fetching it when there is.
@@ -26,7 +27,7 @@ import {
  *
  * Two channels:
  *  - OTA: a JS bundle for a patch inside the same runtime, served through
- *    `updates.url` (the Frappe proxy `upande_tambuzi.mobile_api.ota.manifest`).
+ *    `updates.url` (the Frappe proxy `upande_postharvest.mobile_api.ota.manifest`).
  *    Checked at launch and on every return to the foreground (at most every
  *    five minutes) and applied without asking.
  *  - APK: a GitHub Releases check, once a day, for a build whose runtime
@@ -161,7 +162,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         update: null,
         error: {
           kind: err instanceof UpdateCheckError ? err.kind : UPDATE_ERRORS.FAILED,
-          message: err instanceof Error ? err.message : 'The check could not be completed.',
+          message: userMessage(err, 'The check could not be completed.'),
         },
       });
       return null;
@@ -213,7 +214,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       set({
         installError: {
           kind: err instanceof InstallError ? err.kind : null,
-          message: err instanceof Error ? err.message : 'The update could not be installed.',
+          message: userMessage(err, 'The update could not be installed.'),
           auto,
         },
       });
@@ -233,7 +234,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       set({
         installError: {
           kind: err instanceof InstallError ? err.kind : null,
-          message: err instanceof Error ? err.message : 'The update could not be installed.',
+          message: userMessage(err, 'The update could not be installed.'),
           auto: true,
         },
       });

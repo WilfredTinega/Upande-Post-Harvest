@@ -31,7 +31,7 @@ cannot be fetched from Pages directly. The split:
 
 | what | served by | why |
 | --- | --- | --- |
-| the manifest | the Frappe site: `GET https://tambuzi.upande.com/api/method/upande_tambuzi.mobile_api.ota.manifest` (`expo.updates.url`) | reads the `expo-runtime-version` / `expo-platform` headers the client sends, fetches `<otaBaseUrl>/<platform>/<runtime>/manifest.json` from Pages, and returns it with `expo-protocol-version: 1` added |
+| the manifest | the Frappe site: `GET https://tambuzi.upande.com/api/method/upande_postharvest.mobile_api.ota.manifest` (`expo.updates.url`) | reads the `expo-runtime-version` / `expo-platform` headers the client sends, fetches `<otaBaseUrl>/<platform>/<runtime>/manifest.json` from Pages, and returns it with `expo-protocol-version: 1` added |
 | the bundle and assets | GitHub Pages: `https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/<runtime>/…` (`expo.extra.otaBaseUrl`) | asset downloads need no special headers, and the manifest's URLs are absolute |
 
 `updates.url` is fixed and `scripts/version.mjs` never rewrites it. The runtime
@@ -95,7 +95,7 @@ device is on it yet. The APK is the update.
    permissions* must allow read and write, or the release job cannot push the
    version commit, the tag, or `gh-pages`. The workflow asks for
    `contents: write`, which only works when the repository allows it.
-3. **Deploy the manifest endpoint**: `upande_tambuzi.mobile_api.ota.manifest` on
+3. **Deploy the manifest endpoint**: `upande_postharvest.mobile_api.ota.manifest` on
    `tambuzi.upande.com`. Until it exists `checkForUpdateAsync` rejects and the
    app stays on its embedded bundle; nothing breaks, nothing updates.
 

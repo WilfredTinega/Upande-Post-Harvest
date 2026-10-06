@@ -233,10 +233,10 @@ jobs:
           # fallback to the upload key; omitting them entirely is the fallback.
           if [ "$SIGNED" = "true" ]; then
             ./gradlew assembleRelease --no-daemon \
-              -PTAMBUZI_STORE_FILE="$RUNNER_TEMP/release.keystore" \
-              -PTAMBUZI_STORE_PASSWORD="$STORE_PASSWORD" \
-              -PTAMBUZI_KEY_ALIAS="$KEY_ALIAS" \
-              -PTAMBUZI_KEY_PASSWORD="$KEY_PASSWORD"
+              -PPOSTHARVEST_STORE_FILE="$RUNNER_TEMP/release.keystore" \
+              -PPOSTHARVEST_STORE_PASSWORD="$STORE_PASSWORD" \
+              -PPOSTHARVEST_KEY_ALIAS="$KEY_ALIAS" \
+              -PPOSTHARVEST_KEY_PASSWORD="$KEY_PASSWORD"
           else
             ./gradlew assembleRelease --no-daemon
           fi
@@ -292,7 +292,7 @@ jobs:
         run: |
           set -euo pipefail
           src=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
-          dest="tambuzi_post_harvest_v${{ steps.version.outputs.version }}.apk"
+          dest="post_harvest_v${{ steps.version.outputs.version }}.apk"
           mv "$src" "$dest"
           echo "path=$dest" >> "$GITHUB_OUTPUT"
           echo "name=${dest%.apk}" >> "$GITHUB_OUTPUT"
@@ -338,7 +338,7 @@ jobs:
             git push origin HEAD:${{ github.ref_name }}
           fi
           git tag -a "${{ steps.version.outputs.tag }}" \
-            -m "Tambuzi Post Harvest ${{ steps.version.outputs.version }}"
+            -m "Post Harvest ${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
       # Whoever downloads the APK is the one who has to trust it, so the signing
@@ -361,7 +361,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: Tambuzi Post Harvest ${{ steps.version.outputs.version }}
+          name: Post Harvest ${{ steps.version.outputs.version }}
           body_path: RELEASE_NOTES.md
           files: ${{ steps.apk.outputs.path }}
           fail_on_unmatched_files: true
@@ -372,7 +372,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: Tambuzi Post Harvest ${{ steps.version.outputs.version }} (OTA)
+          name: Post Harvest ${{ steps.version.outputs.version }} (OTA)
           body_path: RELEASE_NOTES.md
           # No APK on a JS release: keep "latest" on the newest APK, which is
           # what the app's in-app APK update check reads.

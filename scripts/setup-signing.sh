@@ -18,11 +18,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-KEYSTORE_FILE="${KEYSTORE_FILE:-tambuzi-post-harvest-upload.keystore}"
-KEY_ALIAS="${KEY_ALIAS:-tambuzi-post-harvest}"
+KEYSTORE_FILE="${KEYSTORE_FILE:-post-harvest-upload.keystore}"
+KEY_ALIAS="${KEY_ALIAS:-post-harvest}"
 VALIDITY_DAYS="${VALIDITY_DAYS:-10950}" # ~30 years; Play requires >= 25.
 SECRETS_FILE="SECRETS-TO-UPLOAD.txt"
-SUBJECT_CN="Tambuzi Post Harvest"
+SUBJECT_CN="Post Harvest"
 SUBJECT_OU="Upande"
 SUBJECT_O="Upande"
 SUBJECT_L="Nairobi"

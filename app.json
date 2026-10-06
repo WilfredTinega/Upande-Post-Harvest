@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Tambuzi Post Harvest",
-    "slug": "tambuzi-post-harvest",
+    "name": "Post Harvest",
+    "slug": "post-harvest",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tambuziposthavest",
+    "scheme": "postharvest",
     "userInterfaceStyle": "light",
     "platforms": [
       "android",
@@ -13,7 +13,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.upande.tambuzi.postharvest",
+      "bundleIdentifier": "com.upande.postharvest",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
@@ -21,7 +21,7 @@
       }
     },
     "android": {
-      "package": "com.upande.tambuzi.postharvest",
+      "package": "com.upande.postharvest",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -58,7 +58,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Tambuzi Post Harvest to scan QR codes.",
+          "cameraPermission": "Allow Post Harvest to scan QR codes.",
           "recordAudioAndroid": false
         }
       ],
@@ -72,7 +72,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Tambuzi Post Harvest to unlock with Face ID."
+          "faceIDPermission": "Allow Post Harvest to unlock with Face ID."
         }
       ],
       [
@@ -94,7 +94,7 @@
     "runtimeVersion": "1.0",
     "updates": {
       "enabled": true,
-      "url": "https://tambuzi.upande.com/api/method/upande_tambuzi.mobile_api.ota.manifest",
+      "url": "https://tambuzi.upande.com/api/method/upande_postharvest.mobile_api.ota.manifest",
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },

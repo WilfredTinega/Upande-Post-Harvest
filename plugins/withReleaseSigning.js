@@ -8,10 +8,10 @@
  * by Gradle properties so no secret ever lands in the repo:
  *
  *   ./gradlew assembleRelease \
- *     -PTAMBUZI_STORE_FILE=/abs/path/release.keystore \
- *     -PTAMBUZI_STORE_PASSWORD=... \
- *     -PTAMBUZI_KEY_ALIAS=... \
- *     -PTAMBUZI_KEY_PASSWORD=...
+ *     -PPOSTHARVEST_STORE_FILE=/abs/path/release.keystore \
+ *     -PPOSTHARVEST_STORE_PASSWORD=... \
+ *     -PPOSTHARVEST_KEY_ALIAS=... \
+ *     -PPOSTHARVEST_KEY_PASSWORD=...
  *
  * When those properties are absent (a local `npx expo run:android --variant
  * release`, say) the build falls back to debug signing instead of failing.
@@ -19,15 +19,15 @@
 
 const { withAppBuildGradle } = require('expo/config-plugins');
 
-const MARKER = 'TAMBUZI_STORE_FILE';
+const MARKER = 'POSTHARVEST_STORE_FILE';
 
 const RELEASE_SIGNING_CONFIG = `
         release {
             if (project.hasProperty('${MARKER}')) {
                 storeFile file(project.property('${MARKER}'))
-                storePassword project.property('TAMBUZI_STORE_PASSWORD')
-                keyAlias project.property('TAMBUZI_KEY_ALIAS')
-                keyPassword project.property('TAMBUZI_KEY_PASSWORD')
+                storePassword project.property('POSTHARVEST_STORE_PASSWORD')
+                keyAlias project.property('POSTHARVEST_KEY_ALIAS')
+                keyPassword project.property('POSTHARVEST_KEY_PASSWORD')
             }
         }`;
 
@@ -67,6 +67,18 @@ function withReleaseSigning(config) {
       gradle.slice(0, releaseRef) +
       RELEASE_SIGNING_REFERENCE +
       gradle.slice(releaseRef + target.length);
+
+    // Sign with both schemes. AGP drops the v1 (JAR) signature when minSdk >= 24,
+    // but some OEM installers and file-manager apps still look for it before
+    // they will open an APK, so keep it for sideloading onto any phone.
+    gradle += `
+android {
+    signingConfigs.configureEach {
+        enableV1Signing true
+        enableV2Signing true
+    }
+}
+`;
 
     cfg.modResults.contents = gradle;
     return cfg;

@@ -20,6 +20,7 @@ import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { userMessage } from '@/src/services/user-message';
 
 interface HistoryEntry extends Outcome {
   id: number;
@@ -142,7 +143,7 @@ export default function ScanScreen() {
         }));
       })
       .catch((err) =>
-        setHarvest((h) => ({ ...h, loading: false, error: err instanceof Error ? err.message : String(err) })),
+        setHarvest((h) => ({ ...h, loading: false, error: userMessage(err, 'Could not load the lists.') })),
       );
   }, [needsHarvestLookups, farm]);
 

@@ -1,12 +1,12 @@
 import type { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { HttpError } from '@/src/services/api';
 import { scanApi, type Employee, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
 import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseTruck } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
+import { humanText, userMessage } from '@/src/services/user-message';
 
 /**
- * Every scan the Tambuzi packhouse does, mirroring the Scan form's
+ * Every scan the packhouse does, mirroring the Scan form's
  * "Honeywell v2" client script: what must be set up first, what to scan
  * next, which endpoint handles it and how the reply is shown.
  */
@@ -141,13 +141,13 @@ const warn = (title: string, detail?: string): Outcome => ({ tone: 'warning', ti
 const fail = (title: string, detail?: string): Outcome => ({ tone: 'error', title, detail });
 const info = (title: string, detail?: string): Outcome => ({ tone: 'info', title, detail });
 
-const errorOf = (err: unknown): string =>
-  err instanceof HttpError || err instanceof Error ? err.message : String(err);
+const errorOf = (err: unknown): string => userMessage(err, 'Scan failed. Try again.');
 
 /** Map a `{success:false, error}` reply to an outcome, using rules [substring, tone, title?]. */
 function rejected(reply: ScanReply, rules: [string, Tone, string?][] = []): Outcome {
-  const error = reply.error || 'Scan failed';
-  const lower = error.toLowerCase();
+  const raw = reply.error || '';
+  const error = humanText(raw) ?? 'Scan failed';
+  const lower = raw.toLowerCase();
   for (const [needle, tone, title] of rules) {
     if (lower.includes(needle.toLowerCase())) {
       return { tone, title: title ?? error, detail: title ? error : undefined };

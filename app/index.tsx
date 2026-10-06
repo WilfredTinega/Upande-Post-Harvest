@@ -72,6 +72,18 @@ export default function HomeScreen() {
   const unknownFarm = !!farm && farmsSource === 'server' && !farms.includes(farm);
   const needsSetup = !farm || !processes.length || unknownFarm;
 
+  // Process and farm are chosen in Settings: a scanner without them goes
+  // straight there after sign-in, once.
+  const scannerHydrated = useScanStore((s) => s.hydrated);
+  const sentToSetup = useRef(false);
+  useEffect(() => {
+    if (!scannerHydrated || sentToSetup.current) return;
+    if (!farm || !processes.length) {
+      sentToSetup.current = true;
+      router.push('/settings');
+    }
+  }, [scannerHydrated, farm, processes.length, router]);
+
   const open = (action: ActionDef) => {
     if (action.needsFarm && !farm) {
       showError('Choose the farm first.');

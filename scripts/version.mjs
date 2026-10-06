@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Odometer versioning for the Tambuzi Post Harvest Expo app.
+ * Odometer versioning for the Post Harvest Expo app.
  *
  * Every merge to the release branch advances the version by exactly one step.
  * The digits roll over like an odometer with fixed limits:

@@ -23,7 +23,7 @@ Three jobs run against every PR targeting `main`:
 - **Version preview**: writes the version, `versionCode`, `runtimeVersion` and
   delivery (APK or OTA) the merge will produce to the run summary.
 - **Debug APK**: prebuilds and assembles a debug APK, uploaded as the artifact
-  `tambuzi_post_harvest_pr<N>_debug` so a reviewer can install the PR on a
+  `post_harvest_pr<N>_debug` so a reviewer can install the PR on a
   device. This proves the native project still compiles before the merge lands.
 
 ### On merge to main: `.github/workflows/release.yml`
@@ -39,7 +39,7 @@ Three jobs run against every PR targeting `main`:
      `ota/android/<runtime>/`. No APK is built. See [OTA.md](OTA.md).
    - **x.y.0 (APK)**: `expo prebuild --platform android --clean`, then
      `./gradlew assembleRelease` signed with the upload keystore, verified with
-     `apksigner`, renamed to `tambuzi_post_harvest_v<version>.apk`.
+     `apksigner`, renamed to `post_harvest_v<version>.apk`.
 4. Commits `chore(release): x.y.z [skip ci]`, tags `vx.y.z`, pushes both.
 5. Publishes a GitHub Release for the tag. An APK release attaches the APK and is
    marked **latest**; an OTA release has no asset and is not marked latest, so
@@ -133,8 +133,8 @@ phones.
 ./scripts/setup-signing.sh
 ```
 
-That generates `tambuzi-post-harvest-upload.keystore` (PKCS12, alias
-`tambuzi-post-harvest`) and prints its password once. It uses `keytool` if a JDK
+That generates `post-harvest-upload.keystore` (PKCS12, alias
+`post-harvest`) and prints its password once. It uses `keytool` if a JDK
 is installed and falls back to `openssl` otherwise. If the GitHub CLI is
 installed and authenticated it uploads the secrets directly; otherwise it writes
 them to `SECRETS-TO-UPLOAD.txt`, which `./scripts/upload-secrets.sh` can push
@@ -144,7 +144,7 @@ later (`--dry-run` to preview).
 | --- | --- |
 | `ANDROID_KEYSTORE_BASE64` | the keystore, base64-encoded |
 | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
-| `ANDROID_KEY_ALIAS` | key alias (`tambuzi-post-harvest`) |
+| `ANDROID_KEY_ALIAS` | key alias (`post-harvest`) |
 | `ANDROID_KEY_PASSWORD` | key password (same as the store password; PKCS12 does not meaningfully separate them) |
 | `ANDROID_KEY_SHA256` | certificate fingerprint, so the build can prove it signed with the right key |
 
@@ -164,8 +164,8 @@ gitignored and the key cannot be regenerated.
 `expo prebuild` regenerates `android/` from scratch on every run, and the stock
 template signs release builds with the debug key. `plugins/withReleaseSigning.js`
 re-applies a `release` signing config on each prebuild, driven by the Gradle
-properties `TAMBUZI_STORE_FILE`, `TAMBUZI_STORE_PASSWORD`, `TAMBUZI_KEY_ALIAS`
-and `TAMBUZI_KEY_PASSWORD`, so no secret is ever written to a file in the repo.
+properties `POSTHARVEST_STORE_FILE`, `POSTHARVEST_STORE_PASSWORD`, `POSTHARVEST_KEY_ALIAS`
+and `POSTHARVEST_KEY_PASSWORD`, so no secret is ever written to a file in the repo.
 Without them it falls back to debug signing.
 
 `plugins/withBuildTuning.js` raises the Gradle heap and Metaspace (the default is
@@ -186,10 +186,10 @@ To sign locally with the real key:
 ```bash
 npm run prebuild
 cd android && ./gradlew assembleRelease \
-  -PTAMBUZI_STORE_FILE="$PWD/../tambuzi-post-harvest-upload.keystore" \
-  -PTAMBUZI_STORE_PASSWORD=... \
-  -PTAMBUZI_KEY_ALIAS=tambuzi-post-harvest \
-  -PTAMBUZI_KEY_PASSWORD=...
+  -PPOSTHARVEST_STORE_FILE="$PWD/../post-harvest-upload.keystore" \
+  -PPOSTHARVEST_STORE_PASSWORD=... \
+  -PPOSTHARVEST_KEY_ALIAS=post-harvest \
+  -PPOSTHARVEST_KEY_PASSWORD=...
 ```
 
 The architecture filter means the release APK does not install on an x86

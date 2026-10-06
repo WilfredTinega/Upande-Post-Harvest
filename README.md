@@ -1,6 +1,6 @@
-# Tambuzi Post Harvest
+# Post Harvest
 
-Android scanning app for the Tambuzi packhouse. It replaces the Scan form on
+Android scanning app for the packhouse. It replaces the Scan form on
 the desk for handheld use: every post-harvest scan — harvesting, receiving,
 grading, stock take, packing, loading, dispatch and delivery — from a Honeywell
 handheld (keyboard wedge) or the phone camera.
@@ -12,10 +12,10 @@ mandatory biometric unlock.
 
 ## Backend
 
-All scans go to the whitelisted methods in the `upande_tambuzi` app,
-`upande_tambuzi/mobile_api/`. The site must have that code deployed:
+All scans go to the whitelisted methods in the `upande_postharvest` app,
+`upande_postharvest/mobile_api/`. The site must have that code deployed:
 
-| Action | Endpoint (`upande_tambuzi.mobile_api.…`) |
+| Action | Endpoint (`upande_postharvest.mobile_api.…`) |
 |---|---|
 | Login | `auth.mobile_login` (returns the `sid` in the body) |
 | Setup / lookups | `setup.get_scan_setup`, `setup.search_employees`, `setup.get_employee`, `setup.validate_order_pick_list`, `setup.list_open_order_pick_lists` |
@@ -53,7 +53,7 @@ that user's permissions.
 Same setup as the Upande Sensors app (see `docs/OTA.md` and `docs/RELEASING.md`):
 
 - **Patch releases (1.0.5 → 1.0.6) ship over the air.** `updates.url` is the Frappe
-  proxy `upande_tambuzi.mobile_api.ota.manifest`, which serves the manifest published to
+  proxy `upande_postharvest.mobile_api.ota.manifest`, which serves the manifest published to
   GitHub Pages with the `expo-protocol-version` header expo-updates requires. The app
   checks at launch and on every return to the foreground and restarts into the bundle
   (`src/stores/updateStore.ts`, `src/components/UpdateController.tsx`).
@@ -65,29 +65,20 @@ Same setup as the Upande Sensors app (see `docs/OTA.md` and `docs/RELEASING.md`)
   *Devices running the app* lists every handheld, who signed in on it and which build
   it runs (System Managers only).
 
-The site needs `upande_tambuzi` deployed and `bench migrate` run (the
+The site needs `upande_postharvest` deployed and `bench migrate` run (the
 `Post Harvest App Install` doctypes).
 
-### Instances
+### Server
 
-`src/services/instance-mapper.ts` lists the known Tambuzi servers. To change
-the server, **hold the logo on the login screen for 3 seconds**: it offers the
-known servers by name (production is the default) and a server address field.
+Nothing about the server is built into the app. On first install the login
+screen asks for the server address; **Save** checks that a Frappe site answers
+there (`/api/method/ping`) and stores it, then the sign-in fields appear. To
+change it later, **hold the logo on the sign-in screen for 3 seconds**.
+
 Type the address without `https://`: the app uses https when the server answers
 on it, else http, and plain http straight away for an IP address, localhost or
-an address with a port (e.g. `192.168.88.245:8000`); Settings shows which server the app is signed in to. To add a
-server, add it to `INSTANCES` (to show it on the login screen) and every URL it
-answers on to `URL_TO_INSTANCE`.
-
-| Instance | Environment | URLs |
-|---|---|---|
-| Tambuzi Local | development | http://192.168.88.245:8000 (LAN), http://10.0.2.2:8000 (emulator), http://localhost:8000 |
-| Tambuzi | production | https://tambuzi.upande.com, https://tambuzi.frappe.cloud |
-
-Development builds (`__DEV__`) open on **Tambuzi Local**; release builds open on
-production. Tambuzi Local is the bench's default site (`tambuzi16`) served by
-`bench start` on port 8000. The phone must be on the same Wi-Fi as the dev
-machine; if the machine's IP changes, update it in `instance-mapper.ts`.
+an address with a port (e.g. `192.168.88.245:8000`). Settings shows which server
+the app is signed in to.
 
 ## How a scan session works
 

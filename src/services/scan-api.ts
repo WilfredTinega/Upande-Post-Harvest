@@ -1,14 +1,15 @@
 import { apiClient, mapAxiosError } from './api';
+import { API_MODULE } from './api-module';
 
 /**
- * Wrappers for the scan endpoints in upande_tambuzi/mobile_api.
+ * Wrappers for the scan endpoints in upande_postharvest/mobile_api.
  *
  * Most endpoints answer HTTP 200 with `{success: false, error}` for domain
  * rejections ("already graded", "Order full!"). `receiving` instead raises
  * (`frappe.throw`), which surfaces here as an HttpError carrying the message.
  */
 
-const BASE = 'upande_tambuzi.mobile_api';
+const BASE = API_MODULE;
 
 /** POST a whitelisted method and return its `message`. Throws HttpError on transport/server errors. */
 export async function callMethod<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {

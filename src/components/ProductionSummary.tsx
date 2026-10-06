@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SkeletonBox } from '@/src/components/Skeleton';
 import { scanApi, type GreenhouseTotals, type HarvesterKpi, type ProductionSummary as Summary } from '@/src/services/scan-api';
 import { colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { userMessage } from '@/src/services/user-message';
 
 const num = (v: number | null | undefined) => (v === null || v === undefined ? '—' : Math.round(v).toLocaleString());
 
@@ -27,7 +28,7 @@ export function ProductionSummary({ farm }: { farm: string }) {
       setData(r);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(userMessage(err, 'Could not load the harvest summary'));
     } finally {
       setLoading(false);
     }

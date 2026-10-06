@@ -31,3 +31,21 @@ function isLocalAddress(host: string): boolean {
     /:\d+$/.test(name)
   );
 }
+
+/**
+ * Resolve a typed server address and confirm a Frappe site answers on it.
+ * Returns the full base URL; throws with a message fit for the login screen.
+ */
+export async function verifyServer(rawUrl: string): Promise<string> {
+  const baseUrl = await probeBaseUrl(rawUrl);
+  let res;
+  try {
+    res = await axios.get(`${baseUrl}/api/method/ping`, { timeout: 15000, validateStatus: () => true });
+  } catch {
+    throw new Error('Could not reach this server.');
+  }
+  if (res.status !== 200 || (res.data as any)?.message !== 'pong') {
+    throw new Error('This address is not a Post Harvest server.');
+  }
+  return baseUrl;
+}

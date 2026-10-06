@@ -10,11 +10,12 @@ import { HttpError } from '@/src/services/api';
 import { getInstallId } from '@/src/services/install-register';
 import { compareVersions } from '@/src/services/updates';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { userMessage } from '@/src/services/user-message';
 
 /**
  * The device register: every handheld the app is installed on, who signed in
  * on it, and which build it runs. System Managers only — the server refuses
- * everyone else (`upande_tambuzi.mobile_api.devices.installs`).
+ * everyone else (`upande_postharvest.mobile_api.devices.installs`).
  *
  * Timestamps come back in the site's timezone with no offset, so "x ago" is
  * measured against the `server_time` of the same response, not the phone's clock.
@@ -94,10 +95,8 @@ export default function DevicesScreen() {
         const status = err instanceof HttpError ? err.status : 0;
         setError(
           status === 404
-            ? 'This server does not have the device register yet. Deploy the latest upande_tambuzi and run bench migrate.'
-            : err instanceof Error
-              ? err.message
-              : 'Could not load the device register.',
+            ? 'The device register is not available on this server.'
+            : userMessage(err, 'Could not load the device register.'),
         );
       } finally {
         if (seq === requestSeq.current) {

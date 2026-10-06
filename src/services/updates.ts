@@ -33,7 +33,7 @@ const extra = (Constants.expoConfig?.extra ?? {}) as { githubRepo?: string };
 export const GITHUB_REPO = extra.githubRepo || 'WilfredTinega/Upande-Post-Harvest';
 export const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
 /** Asset prefix the release workflow names every APK with. */
-const APK_PREFIX = 'tambuzi_post_harvest_v';
+const APK_PREFIX = 'post_harvest_v';
 
 const API_ROOT = 'https://api.github.com';
 const TIMEOUT_MS = 15000;

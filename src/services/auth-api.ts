@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { storage, StorageKeys } from './storage';
+import { API_MODULE } from './api-module';
 import { probeBaseUrl } from './url';
+import { humanText } from './user-message';
 
 function extractError(data: any): string | null {
   if (data && typeof data === 'object') {
@@ -18,7 +20,7 @@ export interface LoginResult {
 }
 
 /**
- * Logs in via `upande_tambuzi.mobile_api.auth.mobile_login`, which returns the
+ * Logs in via `upande_postharvest.mobile_api.auth.mobile_login`, which returns the
  * sid in the JSON body — on mobile the stock /api/method/login Set-Cookie
  * header is absorbed by the native cookie store and never exposed to JS.
  * Persists the sid + instance URL + credentials for silent re-login.
@@ -27,19 +29,19 @@ export async function loginToServer(bareUrl: string, email: string, password: st
   const baseUrl = await probeBaseUrl(bareUrl);
 
   const res = await axios.post(
-    `${baseUrl}/api/method/upande_tambuzi.mobile_api.auth.mobile_login`,
+    `${baseUrl}/api/method/${API_MODULE}.auth.mobile_login`,
     { usr: email, pwd: password },
     { headers: { 'Content-Type': 'application/json' }, timeout: 15000, validateStatus: () => true },
   );
 
   if (res.status === 401 || res.status === 403) {
-    throw new Error(extractError(res.data) || 'Invalid email or password.');
+    throw new Error('Invalid email or password.');
   }
   if (res.status === 404) {
-    throw new Error('This server does not have the Tambuzi mobile API installed.');
+    throw new Error('This server does not support the Post Harvest app.');
   }
   if (res.status < 200 || res.status >= 300) {
-    throw new Error(extractError(res.data) || `Login failed (${res.status}).`);
+    throw new Error(humanText(extractError(res.data)) ?? 'Could not sign in. Try again.');
   }
 
   const msg: any = (res.data && ((res.data as any).message ?? res.data)) || {};

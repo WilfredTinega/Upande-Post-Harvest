@@ -10,7 +10,7 @@ import { APP_VERSION } from './app-version';
 /**
  * The device register: which handhelds this app is installed on, and which
  * build each signed-in person is running. Ported from the Upande Sensors app
- * (src/api/install.js); the server side is `upande_tambuzi.mobile_api.devices`.
+ * (src/api/install.js); the server side is `upande_postharvest.mobile_api.devices`.
  *
  * The unit is a (device, user) pair. Scanners are shared between shifts, so a
  * sign-in always reports — that is the event that binds a person to a device.

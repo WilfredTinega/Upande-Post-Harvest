@@ -1,5 +1,5 @@
 /**
- * Parsers for the labels scanned in the Tambuzi packhouse.
+ * Parsers for the labels scanned in the packhouse.
  *
  *   bucket: {"bucket_id": "BUCKET-00123", ...}
  *   bunch:  {"bunch_id": "...", "variety": "...", "farm": "...", "stem_length": "...", "bunch_size": "Bunch (10)"}

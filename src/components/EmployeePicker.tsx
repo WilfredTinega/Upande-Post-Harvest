@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { scanApi, type Employee } from '@/src/services/scan-api';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
+import { userMessage } from '@/src/services/user-message';
 
 interface Props {
   label: string;
@@ -45,7 +46,7 @@ export function EmployeePicker({ label, value, onChange, placeholder = 'Select e
           setError(null);
         }
       } catch (err) {
-        if (mine === seq.current) setError(err instanceof Error ? err.message : 'Search failed');
+        if (mine === seq.current) setError(userMessage(err, 'Search failed'));
       } finally {
         if (mine === seq.current) setLoading(false);
       }

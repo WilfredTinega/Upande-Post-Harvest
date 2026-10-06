@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
+import { userMessage } from '@/src/services/user-message';
 
 export interface PickerRow {
   title: string;
@@ -69,7 +70,7 @@ export function SearchPicker<T>({
           setError(null);
         }
       } catch (err) {
-        if (mine === seq.current) setError(err instanceof Error ? err.message : 'Could not load the list');
+        if (mine === seq.current) setError(userMessage(err, 'Could not load the list'));
       } finally {
         if (mine === seq.current) setLoading(false);
       }

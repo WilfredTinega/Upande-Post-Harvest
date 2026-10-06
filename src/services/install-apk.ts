@@ -136,9 +136,8 @@ export async function downloadApk(
   }
 
   if (!result?.uri) {
-    const reason = lastError instanceof Error && lastError.message ? ` (${lastError.message})` : '';
     throw new InstallError(
-      `The download failed after ${DOWNLOAD_ATTEMPTS} attempts${reason}. Check your connection and try again.`,
+      `The download failed after ${DOWNLOAD_ATTEMPTS} attempts. Check your connection and try again.`,
       { kind: INSTALL_ERRORS.DOWNLOAD, cause: lastError },
     );
   }
