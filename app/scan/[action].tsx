@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { dialog } from '@/src/components/AppDialog';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/src/components/Screen';
@@ -14,15 +15,30 @@ import { Spinner } from '@/src/components/Spinner';
 import { SkeletonBox } from '@/src/components/Skeleton';
 import { BlockerModal, type BlockerTone } from '@/src/components/BlockerModal';
 import { useToast } from '@/src/components/Toast';
+import { GradedRejectsPanel } from '@/src/components/GradedRejectsPanel';
+import { DeliveryPanel } from '@/src/components/DeliveryPanel';
+import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
+import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import { dispatchPlan, emptySession, getAction, type Outcome, type ScanSession } from '@/src/scan/actions';
-import { scanApi, type Greenhouse, type LoadingPlan, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import {
+  cachedList,
+  employeesKey,
+  fetchList,
+  harvestSetupKey,
+  prefetchList,
+  varietiesKey,
+} from '@/src/services/list-cache';
+import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { userMessage } from '@/src/services/user-message';
+
+/** Picked once for the whole session, in the row beside the farm. */
+const TOP_FIELDS: string[] = ['greenhouse', 'grader', 'packer'];
 
 /** A successful scan's toast stays up this long. */
 const SUCCESS_TOAST_MS = 1000;
@@ -35,8 +51,6 @@ interface HarvestLookups {
   /** Harvesting by stem length: the lengths to pick from. */
   stemLengths: string[];
   reasons: string[];
-  /** Varieties harvested into the chosen greenhouse lately, most first. */
-  recent: string[];
 }
 
 const NO_LOOKUPS: HarvestLookups = {
@@ -46,7 +60,6 @@ const NO_LOOKUPS: HarvestLookups = {
   varieties: [],
   stemLengths: [],
   reasons: [],
-  recent: [],
 };
 
 export default function ScanScreen() {
@@ -73,7 +86,6 @@ export default function ScanScreen() {
   const { notify } = useToast();
   const [count, setCount] = useState(0);
   const [pending, setPending] = useState(0);
-  const [focused, setFocused] = useState(false);
 
   const scanRef = useRef<ScanFieldHandle>(null);
   const stemsRef = useRef<TextInput>(null);
@@ -115,7 +127,7 @@ export default function ScanScreen() {
         if (outcome.counts) setCount((n) => n + 1);
         if (outcome.tone === 'success' || outcome.tone === 'info') {
           const text = outcome.detail ? `${outcome.title}\n${outcome.detail}` : outcome.title;
-          notify(text, outcome.tone, SUCCESS_TOAST_MS);
+          notify(text, outcome.tone, SUCCESS_TOAST_MS, 'center');
         } else {
           setBlocker({ tone: outcome.tone, title: outcome.title, detail: outcome.detail });
         }
@@ -146,27 +158,40 @@ export default function ScanScreen() {
   const [lookupRetries, setLookupRetries] = useState(0);
   // Greenhouses and varieties: Harvesting; varieties alone: Graded Rejects.
   const needsHarvestLookups = req.includes('greenhouse') || req.includes('variety');
+  // Who or where the whole session is for (greenhouse, grader, packer) is picked once in
+  // the top row, and those screens show the scan count in place of the prompt.
+  const topFields = req.filter((r) => TOP_FIELDS.includes(r));
+  const countAtBottom = topFields.length > 0;
+  // Grading starts with the grader's QR: until one is set, ask for it where the count goes.
+  const awaitingGrader = req.includes('grader') && !session.grader;
   // Harvesting by stem length (Settings): varieties are listed once each, plus a length to pick.
   const harvestByStemLength = useScanStore((st) => st.harvestByStemLength);
   const stemMode = harvestByStemLength && req.includes('stemLength');
 
   const loadHarvest = useCallback(() => {
     if (!needsHarvestLookups || !farm) return;
-    setHarvest((h) => ({ ...h, loading: true, error: null }));
-    scanApi
-      .harvestSetup(farm, stemMode)
+    const show = (r: HarvestSetup) =>
+      setHarvest((h) => ({
+        ...h,
+        loading: false,
+        error: null,
+        greenhouses: r.greenhouses ?? [],
+        varieties: r.varieties ?? [],
+        stemLengths: r.stem_lengths ?? [],
+        reasons: r.field_reject_reasons ?? [],
+      }));
+    // The setup warmed when the app opened shows at once; it refreshes quietly.
+    const key = harvestSetupKey(farm, stemMode);
+    const held = cachedList<HarvestSetup>(key);
+    if (held?.success) show(held);
+    else setHarvest((h) => ({ ...h, loading: true, error: null }));
+    fetchList(key, () => scanApi.harvestSetup(farm, stemMode))
       .then((r) => {
         if (!r.success) throw new Error(r.error || 'Could not load greenhouses');
-        setHarvest((h) => ({
-          ...h,
-          loading: false,
-          greenhouses: r.greenhouses ?? [],
-          varieties: r.varieties ?? [],
-          stemLengths: r.stem_lengths ?? [],
-          reasons: r.field_reject_reasons ?? [],
-        }));
+        show(r);
       })
       .catch((err) => {
+        if (held?.success) return;
         const error = userMessage(err, 'Could not load the lists.');
         setHarvest((h) => ({ ...h, loading: false, error }));
         setBlocker({ tone: 'error', title: 'Could not load the lists', detail: error, retry: () => setLookupRetries((n) => n + 1) });
@@ -183,46 +208,45 @@ export default function ScanScreen() {
     if (sessionRef.current.variety || sessionRef.current.stemLength) update({ variety: '', stemLength: '' });
   }, [stemMode, update]);
 
-  useEffect(() => {
-    if (!needsHarvestLookups || !session.greenhouse) return;
-    let live = true;
-    scanApi
-      .recentVarieties(session.greenhouse, stemMode)
-      .then((recent) => live && setHarvest((h) => ({ ...h, recent: recent ?? [] })))
-      .catch(() => live && setHarvest((h) => ({ ...h, recent: [] })));
-    return () => {
-      live = false;
-    };
-  }, [needsHarvestLookups, session.greenhouse, stemMode]);
-
   const greenhouseOptions: DropdownOption[] = harvest.greenhouses.map((g) => ({
     label: g.name,
     value: g.name,
+    sublabel: g.recent ? 'Recent' : undefined,
   }));
 
-  const varietyOptions: DropdownOption[] = useMemo(() => {
-    const byName = new Map(harvest.varieties.map((v) => [v.name, v]));
-    const recent = harvest.recent.filter((n) => byName.has(n));
-    const rest = harvest.varieties.filter((v) => !recent.includes(v.name));
-    const label = (v: Variety) => (v.item_name || v.name).trim();
-    return [
-      ...recent.map((n) => ({
-        label: label(byName.get(n)!),
-        value: n,
-        sublabel: 'Recent',
-      })),
-      ...rest.map((v) => ({ label: label(v), value: v.name })),
-    ];
-  }, [harvest.varieties, harvest.recent]);
-
-  const selectedVariety = harvest.varieties.find((v) => v.name === session.variety);
+  // The first 20 varieties, the greenhouse's recent harvests on top; the rest are found by search.
+  const [pickedVariety, setPickedVariety] = useState<Variety | null>(null);
+  const loadVarieties = useCallback(
+    (query: string) => scanApi.searchVarieties(query, session.greenhouse, stemMode),
+    [session.greenhouse, stemMode],
+  );
+  // Warm the lists the pickers will open on, so they show at once.
+  useEffect(() => {
+    if (!needsHarvestLookups || !session.greenhouse) return;
+    prefetchList(`${varietiesKey(session.greenhouse, stemMode)}|`, () =>
+      scanApi.searchVarieties('', session.greenhouse, stemMode),
+    );
+  }, [needsHarvestLookups, session.greenhouse, stemMode]);
+  useEffect(() => {
+    if (!req.includes('harvester') || !farm) return;
+    prefetchList(employeesKey(farm, 'harvester'), () => scanApi.searchEmployees('', farm, 'harvester'));
+  }, [req, farm]);
+  useEffect(() => {
+    if (!farm) return;
+    if (req.includes('grader')) prefetchList(employeesKey(farm, 'grader'), () => scanApi.searchEmployees('', farm, 'grader'));
+    if (req.includes('packer')) prefetchList(employeesKey(farm, 'packer'), () => scanApi.searchEmployees('', farm, 'packer'));
+  }, [req, farm]);
+  const selectedVariety =
+    pickedVariety?.name === session.variety
+      ? pickedVariety
+      : harvest.varieties.find((v) => v.name === session.variety);
 
   // ── Loading Plan / Dispatch ─────────────────────────────────────────────
   const [dispatching, setDispatching] = useState(false);
   const onDispatch = () => {
     const plan = sessionRef.current.plan;
     if (!plan) return;
-    Alert.alert(
+    dialog(
       'Dispatch truck?',
       `${plan.vehicle}: ${plan.total_boxes} box(es) to ${plan.customers.length} customer delivery point(s). ` +
         'This creates one Delivery Note per customer and delivery point, and cannot be undone from the app.',
@@ -245,6 +269,56 @@ export default function ScanScreen() {
       ],
       { cancelable: true },
     );
+  };
+
+  // Delivery: the date the page is filtered to (shared with the Delivery home figures).
+  const deliveryOffset = useDeliveryDate((st) => st.offset);
+  const deliveryDay = deliveryDate(deliveryOffset);
+
+  // Delivery goes point by point in the loading plan's order: open on the first point with
+  // boxes left, and once a point is fully delivered move on to the next one with boxes left.
+  // Picked once per day, so clearing the point by hand leaves it cleared.
+  const autoPickedDay = useRef<string | null>(null);
+  const needsPoint = req.includes('deliveryPoint');
+  useEffect(() => {
+    if (!needsPoint) return;
+    let live = true;
+    scanApi
+      .deliveryPoints(deliveryDay)
+      .then((r) => {
+        if (!live || !r.success) return;
+        const points = r.points ?? [];
+        const current = sessionRef.current.deliveryPoint;
+        const firstDay = autoPickedDay.current !== deliveryDay;
+        if (current === null && !firstDay) return;
+        const at = current === null ? -1 : points.findIndex((p) => (p.delivery_point ?? '') === current);
+        if (at >= 0 && points[at].pending > 0) return;
+        autoPickedDay.current = deliveryDay;
+        const next = [...points.slice(at + 1), ...points.slice(0, Math.max(at, 0))].find((p) => p.pending > 0);
+        if (next) update({ deliveryPoint: next.delivery_point ?? '' });
+      })
+      .catch(() => {
+        // The point stays as it is; it can still be chosen from the list.
+      });
+    return () => {
+      live = false;
+    };
+  }, [needsPoint, deliveryDay, session.deliveryVersion, update]);
+
+  const [fetching, setFetching] = useState(false);
+  const onFetch = async () => {
+    const plan = sessionRef.current.plan;
+    if (!plan) return;
+    setFetching(true);
+    try {
+      const r = await scanApi.fetchOrders(plan.name);
+      if (r.success && r.plan) update({ plan: r.plan });
+      notify(r.success ? `${r.added ?? 0} boxes from ${r.opls ?? 0} orders planned` : r.error || 'Could not fetch the orders', r.success ? 'success' : 'error', 2000, 'center');
+    } catch (err) {
+      notify(userMessage(err, 'Could not fetch the orders'), 'error', 2000, 'center');
+    } finally {
+      setFetching(false);
+    }
   };
 
   const refreshPlan = () => {
@@ -296,10 +370,57 @@ export default function ScanScreen() {
       onPressRight={openDrawer}
     >
       <View style={s.metaRow}>
-        {action.needsFarm ? (
-          <Chip icon="location-outline" label={farm || 'No farm'} onPress={() => router.push('/settings')} />
+        {/* Delivery covers every farm's boxes, so no farm over its date. */}
+        {action.needsFarm && !req.includes('deliveryPoint') ? (
+          <Chip icon="location-outline" label={farm || 'No farm'} onPress={() => router.push('/settings')} bold />
         ) : null}
-        <Chip icon="checkmark-done-outline" label={`${count} scanned`} />
+        {!blocked && req.includes('greenhouse') ? (
+          <View style={s.greenhouse}>
+            {harvest.loading && !harvest.greenhouses.length ? (
+              <SkeletonBox height={46} radius={borderRadius.sm} />
+            ) : (
+              <Dropdown
+                inline
+                label="Greenhouse"
+                placeholder={harvest.loading ? 'Loading greenhouses…' : 'Choose the greenhouse'}
+                value={session.greenhouse}
+                options={greenhouseOptions}
+                onChange={(greenhouse) => setAndRefocus({ greenhouse })}
+                emptyText={
+                  harvest.loading
+                    ? 'Loading…'
+                    : `No greenhouses for ${farm}. Set the Greenhouses group in its Warehouse Mapping.`
+                }
+              />
+            )}
+          </View>
+        ) : null}
+        {!blocked && req.includes('grader') ? (
+          <View style={s.greenhouse}>
+            <EmployeePicker
+              inline
+              label="Grader"
+              value={session.grader}
+              placeholder="Grader, or scan their QR"
+              recentAtFarm={farm}
+              role="grader"
+              onChange={(grader) => setAndRefocus({ grader })}
+            />
+          </View>
+        ) : null}
+        {!blocked && req.includes('packer') ? (
+          <View style={s.greenhouse}>
+            <EmployeePicker
+              inline
+              label="Packer"
+              value={session.packer}
+              placeholder="Choose the packer"
+              recentAtFarm={farm}
+              role="packer"
+              onChange={(packer) => setAndRefocus({ packer })}
+            />
+          </View>
+        ) : null}
       </View>
 
       {blocked ? (
@@ -308,39 +429,56 @@ export default function ScanScreen() {
         </Card>
       ) : (
         <>
-          {req.length ? (
+          {req.some((r) => !TOP_FIELDS.includes(r)) ? (
             <Card style={s.setup}>
-              {req.includes('greenhouse') ? (
-                <>
-                  {harvest.loading && !harvest.greenhouses.length ? (
-                    <FieldSkeleton />
-                  ) : (
-                    <Dropdown
-                      label="Greenhouse"
-                      placeholder={harvest.loading ? 'Loading greenhouses…' : 'Choose the greenhouse'}
-                      value={session.greenhouse}
-                      options={greenhouseOptions}
-                      onChange={(greenhouse) => setAndRefocus({ greenhouse })}
-                      emptyText={
-                        harvest.loading
-                          ? 'Loading…'
-                          : `No greenhouses for ${farm}. Set the Greenhouses group in its Warehouse Mapping.`
-                      }
-                    />
-                  )}
-                </>
+              {req.includes('floorVariety') ? (
+                <SearchPicker<FloorVariety>
+                  label="Variety on the floor"
+                  icon="flower-outline"
+                  value={
+                    session.variety
+                      ? { title: session.variety, right: session.varietyBalance === null ? undefined : `${session.varietyBalance}` }
+                      : null
+                  }
+                  placeholder="Choose a variety in the packhouse store"
+                  load={(query) => scanApi.packhouseBalances(farm, query)}
+                  keyOf={(v) => v.name}
+                  row={(v) => ({
+                    title: `${v.item_name.trim()}${v.stem_length ? `  ${v.stem_length}` : ''}`,
+                    sub: v.name,
+                    right: `${v.balance} stems`,
+                  })}
+                  onPick={(v) => update({ variety: v.name, varietyBalance: v.balance })}
+                  onClear={() => setAndRefocus({ variety: '', varietyBalance: null })}
+                  onClose={refocus}
+                  searchPlaceholder="Search variety"
+                  emptyText={`Nothing in ${farm}'s packhouse store`}
+                />
               ) : null}
               {req.includes('variety') ? (
-                <Dropdown
+                <SearchPicker<Variety>
                   label="Variety"
+                  icon="flower-outline"
+                  value={
+                    session.variety
+                      ? { title: (selectedVariety?.item_name || session.variety).trim() }
+                      : null
+                  }
                   placeholder={
                     session.greenhouse || !req.includes('greenhouse') ? 'Choose the variety' : 'Choose the greenhouse first'
                   }
-                  value={session.variety}
-                  options={varietyOptions}
-                  onChange={(variety) => setAndRefocus({ variety })}
+                  load={loadVarieties}
+                  cacheKey={varietiesKey(session.greenhouse, stemMode)}
+                  keyOf={(v) => v.name}
+                  row={(v) => ({ title: (v.item_name || v.name).trim(), sub: v.recent ? 'Recent' : undefined })}
+                  onPick={(v) => {
+                    setPickedVariety(v);
+                    update({ variety: v.name });
+                  }}
+                  onClose={refocus}
                   disabled={req.includes('greenhouse') && !session.greenhouse}
-                  emptyText={harvest.loading ? 'Loading…' : 'No varieties'}
+                  searchPlaceholder="Search variety"
+                  emptyText="No varieties"
                 />
               ) : null}
               {stemMode ? (
@@ -359,6 +497,8 @@ export default function ScanScreen() {
                   label="Harvester"
                   value={session.harvester}
                   placeholder="Select the harvester"
+                  recentAtFarm={farm}
+                  role="harvester"
                   onChange={(harvester) => setAndRefocus({ harvester })}
                 />
               ) : null}
@@ -397,7 +537,13 @@ export default function ScanScreen() {
                       onChangeText={(t) => update({ stems: t.replace(/[^0-9]/g, '') })}
                       onSubmitEditing={action?.submit ? undefined : refocus}
                       placeholder={
-                        action?.submit ? 'e.g. 20' : selectedVariety?.max_stems ? `max ${selectedVariety.max_stems}` : 'Stems'
+                        session.varietyBalance !== null && req.includes('floorVariety')
+                          ? `max ${session.varietyBalance}`
+                          : action?.submit
+                            ? 'e.g. 20'
+                            : selectedVariety?.max_stems
+                              ? `max ${selectedVariety.max_stems}`
+                              : 'Stems'
                       }
                       keyboardType="number-pad"
                       returnKeyType="done"
@@ -405,14 +551,6 @@ export default function ScanScreen() {
                     />
                   </View>
                 </View>
-              ) : null}
-              {req.includes('grader') ? (
-                <EmployeePicker
-                  label="Grader"
-                  value={session.grader}
-                  placeholder="Select, or scan the grader QR"
-                  onChange={(grader) => setAndRefocus({ grader })}
-                />
               ) : null}
               {req.includes('graderOptional') ? (
                 <EmployeePicker
@@ -444,8 +582,12 @@ export default function ScanScreen() {
                   keyOf={(o) => o.opl}
                   row={(o) => ({
                     title: `${o.opl} · ${o.customer ?? ''}`,
-                    sub: [o.sales_order, o.delivery_point, o.date_created].filter(Boolean).join(' · '),
-                    right: o.total_stems ? `${o.packed_stems}/${o.total_stems}` : undefined,
+                    lead: o.total_stems ? `${o.packed_stems.toLocaleString()} / ${o.total_stems.toLocaleString()} stems` : undefined,
+                    sub: [o.sales_order, o.delivery_point].filter(Boolean).join(' · '),
+                    right: `${o.pack_pct ?? (o.total_stems ? Math.round((o.packed_stems * 100) / o.total_stems) : 0)}% packed`,
+                    // Green: Available for Sale holds enough to finish it; red: it is short.
+                    stripe: o.short_stems === undefined ? undefined : o.short_stems > 0 ? 'bad' : 'good',
+                    alert: o.short_stems ? `Grade ${o.short_stems.toLocaleString()} stems to complete this order` : undefined,
                   })}
                   onPick={(o) =>
                     update({
@@ -466,13 +608,8 @@ export default function ScanScreen() {
                   emptyText={`No Order Pick Lists waiting to be packed at ${farm}`}
                 />
               ) : null}
-              {req.includes('packer') ? (
-                <EmployeePicker
-                  label="Packer"
-                  value={session.packer}
-                  placeholder="Select the packer"
-                  onChange={(packer) => setAndRefocus({ packer })}
-                />
+              {req.includes('opl') && session.opl ? (
+                <OplProgress opl={session.opl} farm={farm} onUnderPacked={() => setAndRefocus({ opl: null })} />
               ) : null}
               {req.includes('truck') ? (
                 <SetValue
@@ -488,6 +625,41 @@ export default function ScanScreen() {
                   value={session.plan ? `${session.plan.vehicle} · ${session.plan.name} (${session.plan.status})` : null}
                   empty="Scan the Truck Label"
                   onClear={() => setAndRefocus({ plan: null, truck: null, removeFromPlan: false })}
+                />
+              ) : null}
+              {req.includes('deliveryPoint') ? (
+                <DeliveryDateFilter onChange={() => update({ deliveryPoint: null })} />
+              ) : null}
+              {req.includes('deliveryPoint') ? (
+                <SearchPicker<DeliveryPointSummary>
+                  cacheKey={`delivery-points|${deliveryDay}`}
+                  label="Delivery point"
+                  icon="navigate-outline"
+                  value={
+                    session.deliveryPoint === null
+                      ? null
+                      : { title: session.deliveryPoint || 'No delivery point' }
+                  }
+                  placeholder="Choose the delivery point"
+                  load={async (query) => {
+                    const r = await scanApi.deliveryPoints(deliveryDay);
+                    if (!r.success) throw new Error(r.error || 'Could not load the delivery points');
+                    const q = query.trim().toLowerCase();
+                    return (r.points ?? []).filter((p) => !q || (p.delivery_point ?? '').toLowerCase().includes(q));
+                  }}
+                  keyOf={(p) => p.delivery_point ?? ''}
+                  row={(p) => ({
+                    title: p.delivery_point || 'No delivery point',
+                    sub: `${p.customers} customer${p.customers === 1 ? '' : 's'}`,
+                    lead: p.pending ? `${p.pending} to deliver` : undefined,
+                    right: p.delivered ? `${p.delivered} done` : undefined,
+                    stripe: p.pending ? undefined : 'good',
+                  })}
+                  onPick={(p) => update({ deliveryPoint: p.delivery_point ?? '' })}
+                  onClear={() => setAndRefocus({ deliveryPoint: null })}
+                  onClose={refocus}
+                  searchPlaceholder="Search delivery point"
+                  emptyText="No boxes on their way"
                 />
               ) : null}
               {req.includes('truckPick') ? (
@@ -508,7 +680,7 @@ export default function ScanScreen() {
                   keyOf={(p) => p.name}
                   row={(p) => ({
                     title: p.vehicle,
-                    sub: `${p.name} · ${p.status} · ${new Set(p.customers.map((c) => c.customer)).size} customer(s)`,
+                    sub: `${p.farm ? `${p.farm} · ` : ''}${p.name} · ${p.status} · ${new Set(p.customers.map((c) => c.customer)).size} customer(s)`,
                     right: `${p.loaded_boxes}/${p.total_boxes}`,
                   })}
                   onPick={(plan) => update({ plan, truck: plan.vehicle })}
@@ -543,7 +715,13 @@ export default function ScanScreen() {
             </Card>
           ) : null}
 
-          <Text style={s.prompt}>{prompt}</Text>
+          {countAtBottom && !awaitingGrader ? (
+            <View style={s.countRow}>
+              <Chip icon="checkmark-done-outline" label={`${count} scanned`} />
+            </View>
+          ) : (
+            <Text style={s.prompt}>{prompt}</Text>
+          )}
           {action.submit ? (
             <Button
               label={pending > 0 ? 'Recording…' : action.submit.label}
@@ -551,28 +729,40 @@ export default function ScanScreen() {
               loading={pending > 0}
               onPress={() => {
                 const submit = action.submit!;
-                enqueue(submit.label, () => submit.run(sessionRef.current, update));
+                const go = () => enqueue(submit.label, () => submit.run(sessionRef.current, update));
+                const question = submit.confirm?.(sessionRef.current);
+                if (!question) return go();
+                dialog(submit.label, question, [
+                  { text: 'No', style: 'cancel' },
+                  { text: 'Yes', onPress: go },
+                ]);
               }}
             />
           ) : (
             <>
-            <ScanField ref={scanRef} onScan={onScan} autoFocus onFocusChange={setFocused} />
-            {!focused || pending > 0 ? (
-              <Pressable onPress={refocus} style={s.readyRow} hitSlop={8} disabled={focused}>
-                {!focused ? <Text style={s.resumeText}>Tap to resume scanning</Text> : <View style={{ flex: 1 }} />}
-                {pending > 0 ? <Spinner inline label={pending > 1 ? `${pending} in queue` : 'Processing…'} /> : null}
-              </Pressable>
+            <ScanField ref={scanRef} onScan={onScan} autoFocus />
+            {pending > 0 ? (
+              <View style={s.readyRow}>
+                <View style={{ flex: 1 }} />
+                <Spinner inline label={pending > 1 ? `${pending} in queue` : 'Processing…'} />
+              </View>
             ) : null}
             </>
           )}
 
-          {action.panel && session.plan ? (
+          {action.panel === 'rejects' && farm ? <GradedRejectsPanel farm={farm} version={session.rejectsVersion} /> : null}
+          {action.panel === 'delivery' && session.deliveryPoint !== null ? (
+            <DeliveryPanel point={session.deliveryPoint} date={deliveryDay} version={session.deliveryVersion} />
+          ) : null}
+          {action.panel && action.panel !== 'rejects' && action.panel !== 'delivery' && session.plan ? (
             <LoadingPlanPanel
               plan={session.plan}
-              mode={action.panel}
+              mode={action.panel as 'plan' | 'load' | 'dispatch'}
               removing={session.removeFromPlan}
               onToggleRemoving={(removeFromPlan) => setAndRefocus({ removeFromPlan })}
               onRefresh={refreshPlan}
+              onFetch={action.panel === 'plan' || action.panel === 'dispatch' ? onFetch : undefined}
+              fetching={fetching}
               onDispatch={action.panel === 'dispatch' ? onDispatch : undefined}
               dispatching={dispatching}
             />
@@ -618,35 +808,100 @@ function SetValue({
   );
 }
 
-function Chip({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  label: string;
-  onPress?: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} disabled={!onPress} style={s.chip} hitSlop={6}>
-      <Ionicons name={icon} size={14} color={colors.textSecondary} />
-      <Text style={s.chipText}>{label}</Text>
-    </Pressable>
-  );
-}
+/** Under the chosen OPL: who it is for, and its stems packed and still to pack (updates with each scan). */
+/** Why an OPL is closed short. */
+const UNDER_PACK_REASONS = ['Not enough stock', 'Poor quality', 'Order changed by customer', 'Other'];
 
-/** A labelled field's shape while its options load. */
-function FieldSkeleton() {
+function OplProgress({ opl, farm, onUnderPacked }: { opl: OplInfo; farm: string; onUnderPacked: () => void }) {
+  const { notify } = useToast();
+  const [sending, setSending] = useState(false);
+  const total = opl.total_stems ?? 0;
+  const packed = opl.packed_stems ?? 0;
+  const left = Math.max(total - packed, 0);
+  // Started but not finished: it can be closed short, for a Sales Manager to approve.
+  const canUnderPack = packed > 0 && left > 0;
+
+  const send = (reason: string) =>
+    dialog('Under-pack', `Close ${opl.opl} with ${left.toLocaleString()} stems unpacked (${reason})?`, [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Yes',
+        onPress: async () => {
+          setSending(true);
+          try {
+            const r = await scanApi.underPack(opl.opl, farm, reason);
+            notify(r.success ? 'Sent for under-pack approval' : r.error || 'Could not send it', r.success ? 'success' : 'error', 2000, 'center');
+            if (r.success) onUnderPacked();
+          } catch (err) {
+            notify(userMessage(err, 'Could not send it'), 'error', 2000, 'center');
+          } finally {
+            setSending(false);
+          }
+        },
+      },
+    ]);
+
   return (
-    <View accessibilityLabel="Loading">
-      <SkeletonBox width={96} height={12} radius={6} />
-      <SkeletonBox height={48} radius={6} style={{ marginTop: spacing.sm }} />
+    <View style={s.oplInfo}>
+      {opl.customer ? (
+        <Text style={s.oplCustomer} numberOfLines={1}>
+          {opl.customer}
+        </Text>
+      ) : null}
+      {total ? (
+        <Text style={s.oplStems}>
+          Packed <Text style={s.oplNum}>{packed.toLocaleString()}</Text> · Remaining{' '}
+          <Text style={[s.oplNum, left === 0 && { color: colors.success }]}>
+            {left ? left.toLocaleString() : 'none'}
+          </Text>{' '}
+          of {total.toLocaleString()} stems
+        </Text>
+      ) : null}
+      {canUnderPack ? (
+        <View style={s.underPack}>
+          <Dropdown
+            label="Under-pack reason"
+            placeholder={sending ? 'Sending…' : 'Under-pack: not enough to finish?'}
+            value=""
+            options={UNDER_PACK_REASONS.map((r) => ({ label: r, value: r }))}
+            onChange={send}
+            searchable={false}
+            disabled={sending}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
 
+function Chip({
+  icon,
+  label,
+  onPress,
+  bold,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress?: () => void;
+  bold?: boolean;
+}) {
+  return (
+    <Pressable onPress={onPress} disabled={!onPress} style={s.chip} hitSlop={6}>
+      <Ionicons name={icon} size={14} color={colors.textSecondary} />
+      <Text style={[s.chipText, bold && s.chipTextBold]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const s = StyleSheet.create({
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  greenhouse: { flex: 1, minWidth: 160 },
+  oplInfo: { marginTop: -spacing.xs, gap: 2 },
+  underPack: { marginTop: spacing.sm },
+  oplCustomer: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.text },
+  oplStems: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary },
+  oplNum: { fontFamily: fontFamily.bold, color: colors.text },
+  countRow: { flexDirection: 'row', marginBottom: spacing.md },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -657,6 +912,7 @@ const s = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
   },
   chipText: { fontFamily: fontFamily.medium, fontSize: fontSize.sm, color: colors.textSecondary },
+  chipTextBold: { fontFamily: fontFamily.bold, color: colors.text },
   setup: { gap: spacing.md, marginBottom: spacing.md },
   inputRow: { flexDirection: 'row', gap: spacing.md, marginBottom: -spacing.md },
   setLabel: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text, marginBottom: spacing.sm },
@@ -675,5 +931,4 @@ const s = StyleSheet.create({
   setEmpty: { color: colors.textMuted },
   prompt: { fontFamily: fontFamily.semiBold, fontSize: fontSize.lg, color: colors.text, marginBottom: spacing.sm },
   readyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40, marginTop: spacing.xs },
-  resumeText: { flex: 1, fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: '#92400E' },
 });

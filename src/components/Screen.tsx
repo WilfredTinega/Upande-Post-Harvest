@@ -115,9 +115,10 @@ export function Screen({
   }
 
   return (
-    <SafeAreaView style={s.root} edges={['top', 'left', 'right']}>
+    // The status bar strip takes the header's colour (white), the page below keeps its own.
+    <SafeAreaView style={[s.root, header ? s.rootUnderHeader : null]} edges={['top', 'left', 'right']}>
       {header}
-      {body}
+      <View style={s.body}>{body}</View>
     </SafeAreaView>
   );
 }
@@ -131,6 +132,8 @@ function iconLabel(icon: string): string {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  rootUnderHeader: { backgroundColor: colors.surface },
+  body: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

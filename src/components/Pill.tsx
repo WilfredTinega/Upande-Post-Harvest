@@ -41,7 +41,7 @@ const s = StyleSheet.create({
   },
   label: {
     fontFamily: fontFamily.medium,
-    fontSize: 10,
+    fontSize: fontSize.xs,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },

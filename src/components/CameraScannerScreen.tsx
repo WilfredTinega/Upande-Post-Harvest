@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { Button } from './Button';
@@ -48,6 +49,7 @@ export function CameraScannerScreen() {
 
   return (
     <View style={styles.black}>
+      <StatusBar style="light" />
       <CameraView
         style={styles.camera}
         facing="back"

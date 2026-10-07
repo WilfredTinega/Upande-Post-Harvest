@@ -59,7 +59,23 @@ function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
           value: d?.stems_to_pack,
           unit: `stems · ${num(d?.opls_to_pack)} open OPLs`,
         },
-        { chip: 'IN COLD STORE', value: p.cold_store_stems, unit: `stems · ${num(p.packhouse_stems)} in packhouse` },
+        { chip: 'UNGRADED (RECEIVING)', value: p.cold_store_stems, unit: `stems · ${num(p.packhouse_stems)} in packhouse` },
+      ],
+    };
+  }
+  if (process === 'delivery') {
+    const d = o?.delivery;
+    if (!d) return null;
+    return {
+      icon: 'navigate',
+      hero: {
+        chip: 'DELIVERED · DUE TODAY',
+        value: d.delivered,
+        unit: `of ${num(d.due)} boxes · ${d.due ? Math.round((d.delivered / d.due) * 100) : 0}%`,
+      },
+      tiles: [
+        { chip: 'ON THE WAY', value: d.on_the_way, unit: `boxes · ${num(d.due - d.delivered - d.on_the_way)} not loaded` },
+        { chip: 'DELIVERY POINTS', value: d.points_done, unit: `of ${num(d.points)} done` },
       ],
     };
   }
@@ -210,7 +226,7 @@ const s = StyleSheet.create({
   tile: { flex: 1, borderRadius: 20, padding: spacing.lg, minHeight: 110, justifyContent: 'flex-end' },
   tileChip: {
     fontFamily: fontFamily.medium,
-    fontSize: 10,
+    fontSize: fontSize.xs,
     color: 'rgba(255,255,255,0.5)',
     letterSpacing: 1,
     marginBottom: spacing.xs,

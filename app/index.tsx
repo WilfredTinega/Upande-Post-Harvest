@@ -13,32 +13,32 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/src/components/Screen';
+import { InstanceLogo } from '@/src/components/InstanceLogo';
 import { Alert } from '@/src/components/Card';
 import { Button } from '@/src/components/Button';
 import { ProcessLanding } from '@/src/components/ProcessLanding';
-import { InstanceLogo } from '@/src/components/InstanceLogo';
 import { useToast } from '@/src/components/Toast';
 import { useAuthStore } from '@/src/stores/authStore';
 import { useNetworkStore } from '@/src/stores/networkStore';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
+import { warmHarvestLists, warmPackhouseLists } from '@/src/services/list-cache';
 import { type ActionDef } from '@/src/scan/actions';
 import { PROCESSES, type ProcessDef } from '@/src/scan/processes';
 import { useOverview } from '@/src/scan/useOverview';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 /**
- * Home: one page per process this scanner is used for, swiped horizontally.
- * The header title follows the page on screen (Production → Packhouse →
- * Dispatch); each page scrolls vertically on its own.
+ * The page the app opens on: the greeting, then each process this scanner is used
+ * for, swiped horizontally, the title following the page on screen.
  */
-export default function HomeScreen() {
+export default function StartScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { showError } = useToast();
+  const openDrawer = useUIStore((s) => s.openDrawer);
   const fullName = useAuthStore((s) => s.fullName);
   const online = useNetworkStore((s) => s.online);
-  const openDrawer = useUIStore((s) => s.openDrawer);
   const { farms, farmsSource, farmsNotice, farm, processes, load, loading, error } = useScanStore();
   const { overview, loading: overviewLoading, error: overviewError, reload } = useOverview(farm);
 
@@ -46,7 +46,19 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
-  // Every chosen process gets the same landing; all of them until some are chosen.
+  // Warm the harvesting lists in the background, so those screens and pickers open at once.
+  const harvestByStemLength = useScanStore((s) => s.harvestByStemLength);
+  // Harvesting and field rejects belong to Production.
+  const harvests = !processes.length || processes.includes('production');
+  useEffect(() => {
+    if (farm && harvests) warmHarvestLists(farm, harvestByStemLength);
+  }, [farm, harvests, harvestByStemLength]);
+  const packs = !processes.length || processes.includes('packhouse');
+  useEffect(() => {
+    if (farm && packs) warmPackhouseLists(farm);
+  }, [farm, packs]);
+
+  // Every chosen process; all of them until some are chosen.
   const shown = PROCESSES.filter((p) => !processes.length || processes.includes(p.key));
   const [page, setPage] = useState(0);
   const pager = useRef<FlatList<ProcessDef>>(null);
@@ -67,10 +79,18 @@ export default function HomeScreen() {
     const next = Math.round(e.nativeEvent.contentOffset.x / Math.max(width, 1));
     if (next !== page) setPage(next);
   };
-
   const goTo = (i: number) => {
     setPage(i);
     pager.current?.scrollToIndex({ index: i, animated: true });
+  };
+
+  const open = (action: ActionDef) => {
+    if (action.needsFarm && !farm) {
+      showError('Choose the farm first.');
+      router.push('/settings');
+      return;
+    }
+    router.push({ pathname: '/scan/[action]', params: { action: action.key } });
   };
 
   const unknownFarm = !!farm && farmsSource === 'server' && !farms.includes(farm);
@@ -88,40 +108,8 @@ export default function HomeScreen() {
     }
   }, [scannerHydrated, farm, processes.length, router]);
 
-  const open = (action: ActionDef) => {
-    if (action.needsFarm && !farm) {
-      showError('Choose the farm first.');
-      router.push('/settings');
-      return;
-    }
-    router.push({ pathname: '/scan/[action]', params: { action: action.key } });
-  };
-
-  const refreshing = loading || overviewLoading;
-  const refresh = () => {
-    load();
-    reload();
-  };
-
-  const header = (
+  const top = (
     <View>
-      <View style={s.greetingBlock}>
-        <InstanceLogo />
-        <Text style={s.greeting}>{fullName ? `Welcome back, ${fullName.split(' ')[0]}` : 'Welcome'}</Text>
-        <View style={s.topRow}>
-          <Text style={s.dateText}>
-            {farm ? `${farm} · ` : ''}
-            <PhoneClock />
-          </Text>
-          <View style={[s.statusPill, online ? s.pillLive : s.pillOffline]}>
-            <View style={[s.statusDot, online ? s.dotLive : s.dotOffline]} />
-            <Text style={[s.statusText, online ? s.statusTextLive : s.statusTextOffline]}>
-              {online ? 'Live' : 'Offline'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
       {needsSetup ? (
         <View style={s.block}>
           <Alert tone="warn">
@@ -135,8 +123,7 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      {/* No inline "offline" message: the Live/Offline pill says it. Only a
-          server that answers with no farms set up is worth a note here. */}
+      {/* A server that answers with no farms set up is worth a note. */}
       {!error && farmsNotice ? (
         <View style={s.block}>
           <Alert tone="warn">{farmsNotice}</Alert>
@@ -145,31 +132,52 @@ export default function HomeScreen() {
     </View>
   );
 
-  const landing = (p: ProcessDef) => (
-    <ProcessLanding
-      process={p.key}
-      farm={farm}
-      overview={overview}
-      loading={overviewLoading}
-      error={overviewError}
-      onRetry={reload}
-      showLabel={false}
-      onOpen={open}
-    />
+  // The greeting and status stay put; only the process pages below them scroll.
+  const greeting = (
+    <View style={s.fixed}>
+      <View style={s.greetingBlock}>
+        <InstanceLogo />
+        <Text style={s.greeting}>{fullName ? `Welcome back, ${fullName.split(' ')[0]}` : 'Welcome'}</Text>
+        <View style={s.topRow}>
+          {/* The farm, except on Delivery, which covers every farm's boxes. */}
+          <Text style={s.farmText}>{current.key === 'delivery' ? '' : farm}</Text>
+          <View style={[s.statusPill, online ? s.pillLive : s.pillOffline]}>
+            <View style={[s.statusDot, online ? s.dotLive : s.dotOffline]} />
+            <Text style={[s.statusText, online ? s.statusTextLive : s.statusTextOffline]}>
+              {online ? 'Live' : 'Offline'}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
   );
+
+  const refresh = () => {
+    load();
+    reload();
+  };
 
   const page_ = (p: ProcessDef) => (
     <ScrollView
       style={{ width }}
       contentContainerStyle={s.page}
       showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      refreshControl={<RefreshControl refreshing={loading || overviewLoading} onRefresh={refresh} />}
     >
-      {landing(p)}
+      {top}
+      <ProcessLanding
+        process={p.key}
+        farm={farm}
+        overview={overview}
+        loading={overviewLoading}
+        error={overviewError}
+        onRetry={reload}
+        showLabel={false}
+        onOpen={open}
+      />
     </ScrollView>
   );
 
-  // The greeting and status stay put; only the process pages below them scroll.
   return (
     <Screen
       title={current.label}
@@ -179,7 +187,7 @@ export default function HomeScreen() {
       onPressRight={() => router.push('/settings')}
       scroll={false}
     >
-      <View style={s.fixed}>{header}</View>
+      {greeting}
       {shown.length > 1 ? (
         <>
           <View style={s.dots}>
@@ -205,11 +213,7 @@ export default function HomeScreen() {
             showsHorizontalScrollIndicator={false}
             onScroll={onPageScroll}
             scrollEventThrottle={16}
-            getItemLayout={(_, index) => ({
-              length: width,
-              offset: width * index,
-              index,
-            })}
+            getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
             renderItem={({ item }) => page_(item)}
           />
         </>
@@ -217,29 +221,6 @@ export default function HomeScreen() {
         page_(current)
       )}
     </Screen>
-  );
-}
-
-/**
- * The phone's date and time, re-read every second so it rolls over with the
- * phone's clock. Its own component, so only this text re-renders each tick.
- */
-function PhoneClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <Text>
-      {now.toLocaleDateString([], {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-      })}
-      {' · '}
-      {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-    </Text>
   );
 }
 
@@ -256,7 +237,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  dateText: {
+  farmText: {
     flex: 1,
     fontFamily: fontFamily.regular,
     fontSize: fontSize.xs,
@@ -279,7 +260,6 @@ const s = StyleSheet.create({
   statusText: { fontFamily: fontFamily.medium, fontSize: fontSize.xs },
   statusTextLive: { color: '#16A34A' },
   statusTextOffline: { color: '#D97706' },
-  block: { marginTop: spacing.md },
   greetingBlock: { minHeight: 56, justifyContent: 'center' },
   fixed: {
     paddingHorizontal: spacing.lg,
@@ -287,6 +267,7 @@ const s = StyleSheet.create({
     paddingBottom: spacing.sm,
     backgroundColor: colors.background,
   },
+  block: { marginBottom: spacing.md },
   page: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
   dots: {
     flexDirection: 'row',

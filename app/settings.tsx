@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { dialog } from '@/src/components/AppDialog';
 import { useRouter } from 'expo-router';
 import * as Device from 'expo-device';
 import { Ionicons } from '@expo/vector-icons';
@@ -82,7 +83,7 @@ export default function SettingsScreen() {
     const err = useUpdateStore.getState().installError;
     if (!err) return;
     const blocked = err.kind === INSTALL_ERRORS.BLOCKED;
-    Alert.alert('Update failed', err.message, [
+    dialog('Update failed', err.message, [
       { text: 'Close', style: 'cancel' },
       blocked
         ? { text: 'Allow installs', onPress: () => openUnknownAppSourcesSettings().catch(() => {}) }
@@ -118,7 +119,7 @@ export default function SettingsScreen() {
   const onToggleBiometric = async () => {
     if (!biometricEnabled) {
       if (!moduleReady) {
-        Alert.alert(
+        dialog(
           'Update needed',
           'Install the latest build of Post Harvest to enable biometric unlock.',
           undefined,
@@ -127,7 +128,7 @@ export default function SettingsScreen() {
         return;
       }
       if (!hardwareReady) {
-        Alert.alert(
+        dialog(
           'Biometric unavailable',
           'Enroll a fingerprint or face in your device settings, then try again.',
           undefined,
@@ -151,7 +152,7 @@ export default function SettingsScreen() {
   };
 
   const onSignOut = () => {
-    Alert.alert('Sign out?', 'You can sign back in with biometrics or your password.', [
+    dialog('Sign out?', 'You can sign back in with biometrics or your password.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Sign out',
@@ -165,7 +166,7 @@ export default function SettingsScreen() {
   };
 
   const onForgetDevice = () => {
-    Alert.alert(
+    dialog(
       'Forget this device?',
       'This clears your session and disables biometric unlock. You will need your password to sign back in.',
       [
@@ -383,7 +384,7 @@ const s = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: 6,
   },
-  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.error, marginTop: spacing.sm },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.error, marginTop: spacing.sm },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
