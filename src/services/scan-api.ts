@@ -53,6 +53,10 @@ export interface ScanSetup {
 export interface Employee {
   name: string;
   employee_name: string;
+  /** Payroll number; `name` is the HR-EMP id the server links records to. */
+  employee_number?: string | null;
+  /** Harvested at the farm lately (search with a farm); listed first. */
+  recent?: 0 | 1;
   designation?: string;
 }
 
@@ -76,10 +80,15 @@ export interface OpenOpl {
   total_stems: number;
   packed_stems: number;
   date_created?: string | null;
+  /** With `with_stock`: how far it is packed, and stems Available for Sale is short to finish it (0 = enough). */
+  pack_pct?: number;
+  short_stems?: number;
 }
 
 export interface Greenhouse {
   name: string;
+  /** Harvested into lately; listed first. */
+  recent?: 0 | 1;
 }
 
 export interface Variety {
@@ -88,6 +97,8 @@ export interface Variety {
   item_group?: string | null;
   /** A stem-length template: harvested as its variant for the chosen length. */
   has_variants?: 0 | 1;
+  /** Harvested into the chosen greenhouse lately (search_varieties). */
+  recent?: 0 | 1;
   /** Most stems a bucket of this variety holds (Production Settings). */
   max_stems?: number;
 }
@@ -115,8 +126,26 @@ export interface Overview extends ScanReply {
     received_out_stems: number;
     graded_bunches: number;
     graded_stems: number;
+    ungraded_discard_buckets?: number;
+    ungraded_discard_stems?: number;
+    packed_bunches?: number;
+    /** Boxes packed into today. */
+    packed_boxes?: number;
+    /** OPLs whose Farm Pack List was submitted today, out of those plus the ones still to pack. */
+    opls_packed?: number;
+    opls_total?: number;
+    /** Boxes those OPLs need: one per Box ID on the farm's lines. */
+    boxes_total?: number;
     cold_store_stems: number | null;
     packhouse_stems: number | null;
+  } | null;
+  /** Today's deliveries (all farms): boxes whose Sales Order delivers today. */
+  delivery?: {
+    due: number;
+    delivered: number;
+    on_the_way: number;
+    points: number;
+    points_done: number;
   } | null;
   dispatch?: {
     opls_to_pack: number;
@@ -156,7 +185,10 @@ export interface QualityOverview {
 
 export interface VarietyTotals {
   item_code: string;
+  /** The variety's name; for a stem-length variant, its template's ("Jasmine"). */
   item_name: string;
+  /** Set when harvested by stem length, e.g. "63CM". */
+  stem_length?: string | null;
   harvested_buckets: number;
   harvested_stems: number;
   received_buckets: number;
@@ -179,6 +211,74 @@ export interface HarvesterKpi {
   received_buckets: number;
   first_at?: string | null;
   last_at?: string | null;
+  /** What they picked per variety (and stem length), most stems first. */
+  picked?: HarvesterPick[];
+}
+
+/** Today's graded rejects at a farm, and what came into the packhouse and was graded. */
+export interface RejectsDay extends ScanReply {
+  received_stems: number;
+  graded_stems: number;
+  /** Submitted plus still on today's draft. */
+  rejected_stems: number;
+  draft: string | null;
+  lines: { row: string; item_code: string; item_name: string; stem_length?: string | null; stems: number; submitted: boolean }[];
+}
+
+/** A variety on the packhouse floor and how many stems of it are there. */
+export interface FloorVariety {
+  name: string;
+  item_name: string;
+  stem_length?: string | null;
+  balance: number;
+}
+
+export interface DeliveryPointSummary {
+  delivery_point: string | null;
+  pending: number;
+  delivered: number;
+  customers: number;
+}
+
+export interface DeliveryBox {
+  box: string;
+  customer: string;
+  consignee: string | null;
+  delivered: 0 | 1;
+  status?: 'delivered' | 'on_truck' | 'not_loaded';
+}
+
+/** Whose recent work lists them first in an employee picker. */
+export type EmployeeRole = 'harvester' | 'grader' | 'packer';
+
+/** A grader's or packer's day: what they handled per variety (and stem length). */
+export interface PersonKpi {
+  /** As recorded: an employee id, or a payroll number. */
+  person: string;
+  employee: string | null;
+  employee_name: string;
+  employee_number: string | null;
+  bunches: number;
+  stems: number;
+  /** Packers only: boxes packed into. */
+  boxes?: number;
+  picked: HarvesterPick[];
+}
+
+export interface PackhouseSummary extends ScanReply {
+  date?: string;
+  graders?: PersonKpi[];
+  packers?: PersonKpi[];
+}
+
+export interface HarvesterPick {
+  item_code: string;
+  item_name: string;
+  stem_length?: string | null;
+  /** Harvesters' picks count buckets; graders' and packers' count bunches. */
+  buckets?: number;
+  bunches?: number;
+  stems: number;
 }
 
 export interface ProductionSummary extends ScanReply {
@@ -227,9 +327,39 @@ export interface LoadingPlan {
   farm?: string | null;
   status: 'Planning' | 'Loading' | 'Loaded' | 'Dispatched' | 'Cancelled';
   docstatus: number;
+  /** Boxes the day's orders need (a box several farms pack counts once). */
+  required_boxes?: number;
   total_boxes: number;
   loaded_boxes: number;
+  /** Boxes on the plan that are Consolidated Box Labels (one box packed by several farms). */
+  consolidated_boxes?: number;
+  /** Boxes on the plan already delivered. */
+  delivered_boxes?: number;
   customers: LoadingPlanCustomer[];
+  /** The loading sheet: delivery point → customer → consignee, each with its boxes, in loading order. */
+  sheet?: {
+    delivery_point: string | null;
+    customer: string;
+    consignee: string | null;
+    planned: number;
+    loaded: number;
+    /** Boxes the orders need that are not on this truck yet (in `boxes` with `pending`). */
+    pending?: number;
+    boxes: {
+      box: string;
+      loaded: 0 | 1;
+      /** Not on the truck's plan yet: not packed, or packed and waiting for Fetch. */
+      pending?: 'unpacked' | 'packed';
+      /** Farms whose piece of this box is not packed yet. */
+      waiting?: number;
+      /** A Consolidated Box Label: its farms ("Burguret / Turaco"), or 1. */
+      combined?: string | 1;
+      /** Delivered at its delivery point. */
+      delivered?: 1;
+    }[];
+  }[];
+  /** Every box on the plan, with its Sales Order's delivery date. */
+  boxes?: { box: string; customer: string; delivery_point?: string | null; loaded: 0 | 1; delivery_date: string }[];
 }
 
 export interface PlanReply extends ScanReply {
@@ -238,18 +368,31 @@ export interface PlanReply extends ScanReply {
 
 export const scanApi = {
   setup: () => callMethod<ScanSetup>('setup.get_scan_setup'),
-  overview: (farm: string) => callMethod<Overview>('setup.get_overview', { farm }),
-  searchEmployees: (txt: string) => callMethod<Employee[]>('setup.search_employees', { txt }),
+  /** Today's figures per process; Delivery's for `deliveryDate` (default today). */
+  overview: (farm: string, deliveryDate?: string) =>
+    callMethod<Overview>('setup.get_overview', deliveryDate ? { farm, delivery_date: deliveryDate } : { farm }),
+  /** The first 20 active employees, matching `txt` when given; with `farm`, its recent harvesters first. */
+  searchEmployees: (txt: string, farm?: string, role: EmployeeRole = 'harvester') =>
+    callMethod<Employee[]>('setup.search_employees', farm ? { txt, farm, role } : { txt }),
   getEmployee: (employee: string) => callMethod<ScanReply & Partial<Employee>>('setup.get_employee', { employee }),
   validateOpl: (opl_data: string, farm: string) =>
     callMethod<OplInfo>('setup.validate_order_pick_list', { opl_data, farm }),
   listOpenOpls: (farm: string, txt?: string) =>
-    callMethod<ScanReply & { opls?: OpenOpl[] }>('setup.list_open_order_pick_lists', { farm, txt }),
+    callMethod<ScanReply & { opls?: OpenOpl[] }>('setup.list_open_order_pick_lists', { farm, txt, with_stock: 1 }),
 
+  packhouseSummary: (farm: string, date?: string) =>
+    callMethod<PackhouseSummary>('packhouse.get_summary', { farm, date }),
   productionSummary: (farm: string, date?: string) =>
     callMethod<ProductionSummary>('harvesting.get_production_summary', { farm, date }),
   harvestSetup: (farm: string, byStemLength = false) =>
     callMethod<HarvestSetup>('harvesting.get_harvest_setup', { farm, by_stem_length: byStemLength ? 1 : 0 }),
+  /** The first 20 varieties, matching `txt`; the greenhouse's recent harvests come first, flagged `recent`. */
+  searchVarieties: (txt: string, greenhouse: string, byStemLength = false) =>
+    callMethod<Variety[]>('harvesting.search_varieties', {
+      txt,
+      greenhouse,
+      by_stem_length: byStemLength ? 1 : 0,
+    }),
   recentVarieties: (greenhouse: string, byStemLength = false) =>
     callMethod<string[]>('harvesting.get_recent_varieties', { greenhouse, by_stem_length: byStemLength ? 1 : 0 }),
   harvest: (args: HarvestArgs) => callMethod<ScanReply>('harvesting.harvest', { ...args }),
@@ -273,24 +416,39 @@ export const scanApi = {
   localSale: (scan_data: string, farm: string) => callMethod<ScanReply>('shop.local_sale', { scan_data, farm }),
   walkInShopTransfer: (scan_data: string, farm: string) =>
     callMethod<ScanReply>('shop.walk_in_shop_transfer', { scan_data, farm }),
+  /** Varieties with stems in the farm's Packhouse Store, largest balance first (Graded Rejects). */
+  packhouseBalances: (farm: string, txt = '') =>
+    callMethod<FloorVariety[]>('graded_rejects.packhouse_balances', { farm, txt }),
+  /** Add a line to today's draft Graded Rejects entry (saved, not submitted). */
+  addReject: (farm: string, item_code: string, stems: number) =>
+    callMethod<ScanReply & { qty?: number; variety?: string }>('graded_rejects.add_reject', { farm, item_code, stems }),
+  removeReject: (farm: string, row: string) => callMethod<ScanReply>('graded_rejects.remove_reject', { farm, row }),
+  submitRejects: (farm: string) => callMethod<ScanReply & { qty?: number }>('graded_rejects.submit_rejects', { farm }),
+  getRejects: (farm: string) => callMethod<RejectsDay>('graded_rejects.get_rejects', { farm }),
   gradedRejects: (farm: string, item_code: string, stems: number, graded_by?: string) =>
     callMethod<ScanReply>('graded_rejects.graded_rejects', { farm, item_code, stems, graded_by }),
 
   stockTake: (scan_data: string, farm: string) => callMethod<ScanReply>('stock_take.stock_take', { scan_data, farm }),
   vase: (scan_data: string, farm: string) => callMethod<ScanReply>('vase.vase', { scan_data, farm }),
 
+  /** Send the OPL's Farm Pack List for under-pack approval (not enough stems to finish it). */
+  underPack: (opl_name: string, farm: string, reason: string) =>
+    callMethod<ScanReply & { fpl?: string; state?: string }>('packing.under_pack', { opl_name, farm, reason }),
   packing: (opl_name: string, bunch_label_data: string, farm: string, packer: string) =>
     callMethod<ScanReply>('packing.fast_packing', { opl_name, bunch_label_data, farm, packer }),
   packingReject: (scan_data: string, farm: string, rejection_reason: string, graded_by?: string) =>
     callMethod<ScanReply>('bunch_actions.packing_reject', { scan_data, farm, rejection_reason, graded_by }),
 
-  dispatch: (vehicle: string, box_name: string, farm: string) =>
-    callMethod<ScanReply>('dispatch_form.create_dispatch_form', { vehicle, box_name, farm }),
   undispatch: (box: string, reason: string) => callMethod<ScanReply>('undispatch_box.undispatch_box', { box, reason }),
   delivery: (box_name: string, farm: string) => callMethod<ScanReply>('delivery_form.delivery_form', { box_name, farm }),
+  /** Delivery points with boxes on their way (all farms), most still to deliver first. */
+  deliveryPoints: (date: string) =>
+    callMethod<ScanReply & { points?: DeliveryPointSummary[] }>('delivery_form.delivery_points', { date }),
+  /** The boxes going to a delivery point (all farms), customer by customer. */
+  pointBoxes: (delivery_point: string, date: string) =>
+    callMethod<ScanReply & { boxes?: DeliveryBox[] }>('delivery_form.point_boxes', { delivery_point, date }),
 
   // Packing -> Dispatch: staging, loading plan, loading, dispatch
-  stageBox: (box: string) => callMethod<ScanReply>('dispatch_flow.stage_box', { box }),
   openLoadingPlan: (vehicle: string, farm: string, create: boolean) =>
     callMethod<PlanReply>('dispatch_flow.open_loading_plan', { vehicle, farm, create: create ? 1 : 0 }),
   listOpenLoadingPlans: (farm: string) =>
@@ -300,6 +458,9 @@ export const scanApi = {
   unplanBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.unplan_box', { plan, box }),
   loadBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.load_box', { plan, box }),
   dispatchLoadingPlan: (plan: string) => callMethod<PlanReply>('dispatch_flow.dispatch_loading_plan', { plan }),
+  /** Plan every packed box of tomorrow's orders for the plan's farm onto the truck. */
+  fetchOrders: (plan: string) =>
+    callMethod<PlanReply & { added?: number; opls?: number }>('dispatch_flow.fetch_orders', { plan }),
 };
 
 /* ── Device register ─────────────────────────────────────────────────────── */

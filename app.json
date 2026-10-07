@@ -101,6 +101,11 @@
     "extra": {
       "githubRepo": "WilfredTinega/Upande-Post-Harvest",
       "otaBaseUrl": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota"
+    },
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#FFFFFF",
+      "translucent": true
     }
   }
 }

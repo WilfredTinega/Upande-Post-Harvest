@@ -1,14 +1,25 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
 import { userMessage } from '@/src/services/user-message';
+import { cachedList, fetchList } from '@/src/services/list-cache';
+
+/** Pause after typing before searching. */
+const SEARCH_DELAY_MS = 150;
+
 
 export interface PickerRow {
   title: string;
   sub?: string;
+  /** Bold text at the start of `sub`, e.g. "0 / 50 stems". */
+  lead?: string;
+  /** A coloured stripe down the row's left edge: green good, red a problem. */
+  stripe?: 'good' | 'bad';
+  /** A short red line under the row saying what fixes the problem. */
+  alert?: string;
   /** Short text on the right, e.g. progress. */
   right?: string;
 }
@@ -21,6 +32,9 @@ interface Props<T> {
   placeholder: string;
   /** Loads the options, filtered by the search text (server-side). */
   load: (query: string) => Promise<T[]>;
+  disabled?: boolean;
+  /** Hold the lists under this key (see list-cache) so the sheet opens on them at once. */
+  cacheKey?: string;
   keyOf: (item: T) => string;
   row: (item: T) => PickerRow;
   onPick: (item: T) => void;
@@ -47,6 +61,8 @@ export function SearchPicker<T>({
   searchPlaceholder = 'Search',
   emptyText = 'Nothing to choose',
   onClose,
+  disabled = false,
+  cacheKey,
 }: Props<T>) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
@@ -63,22 +79,30 @@ export function SearchPicker<T>({
   useEffect(() => {
     if (!open) return;
     const mine = ++seq.current;
-    const t = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const rows = await loadRef.current(query);
-        if (mine === seq.current) {
-          setItems(rows ?? []);
-          setError(null);
+    const key = cacheKey === undefined ? null : `${cacheKey}|${query.trim()}`;
+    const held = key ? cachedList<T[]>(key) : undefined;
+    // A held list shows at once and refreshes quietly; the skeleton is only for a first load.
+    const t = setTimeout(
+      async () => {
+        if (held) setItems(held);
+        else setLoading(true);
+        try {
+          const load = () => loadRef.current(query);
+          const rows = (await (key ? fetchList<T[]>(key, load) : load())) ?? [];
+          if (mine === seq.current) {
+            setItems(rows);
+            setError(null);
+          }
+        } catch (err) {
+          if (mine === seq.current && !held) setError(userMessage(err, 'Could not load the list'));
+        } finally {
+          if (mine === seq.current) setLoading(false);
         }
-      } catch (err) {
-        if (mine === seq.current) setError(userMessage(err, 'Could not load the list'));
-      } finally {
-        if (mine === seq.current) setLoading(false);
-      }
-    }, query ? 300 : 0);
+      },
+      query && !held ? SEARCH_DELAY_MS : 0,
+    );
     return () => clearTimeout(t);
-  }, [open, query]);
+  }, [open, query, cacheKey]);
 
   const close = () => {
     setOpen(false);
@@ -96,7 +120,8 @@ export function SearchPicker<T>({
       <Text style={s.label}>{label}</Text>
       <Pressable
         onPress={() => setOpen(true)}
-        style={({ pressed }) => [s.field, pressed && s.pressed]}
+        disabled={disabled}
+        style={({ pressed }) => [s.field, pressed && s.pressed, disabled && s.disabled]}
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${value ? value.title : placeholder}`}
       >
@@ -142,25 +167,35 @@ export function SearchPicker<T>({
                   autoCapitalize="none"
                   style={s.search}
                 />
-                {loading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
+                
               </View>
-            ) : loading ? (
-              <ActivityIndicator size="small" color={colors.textMuted} style={{ marginBottom: spacing.sm }} />
             ) : null}
             {error ? <Text style={s.error}>{error}</Text> : null}
             <FlatList
-              data={items}
+              // Each load, a new search too, shows the skeleton in place of the old rows.
+              data={loading ? [] : items}
               keyExtractor={keyOf}
               keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={s.separator} />}
               ListEmptyComponent={loading ? <ListSkeleton /> : error ? null : <Text style={s.empty}>{emptyText}</Text>}
               renderItem={({ item }) => {
                 const r = row(item);
                 return (
                   <Pressable onPress={() => pick(item)} style={({ pressed }) => [s.option, pressed && s.pressed]}>
+                    {r.stripe ? (
+                      <View style={[s.stripe, { backgroundColor: r.stripe === 'bad' ? colors.error : colors.success }]} />
+                    ) : null}
                     <View style={{ flex: 1 }}>
                       <Text style={s.optionLabel}>{r.title}</Text>
-                      {r.sub ? <Text style={s.optionSub}>{r.sub}</Text> : null}
+                      {r.lead || r.sub ? (
+                        <Text style={s.optionSub}>
+                          {r.lead ? <Text style={s.lead}>{r.lead}</Text> : null}
+                          {r.lead && r.sub ? ' · ' : ''}
+                          {r.sub ?? ''}
+                        </Text>
+                      ) : null}
+                      {r.alert ? <Text style={s.alert}>{r.alert}</Text> : null}
                     </View>
                     {r.right ? <Text style={s.right}>{r.right}</Text> : null}
                   </Pressable>
@@ -189,7 +224,8 @@ const s = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   pressed: { opacity: 0.7 },
-  value: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
+  disabled: { opacity: 0.6 },
+  value: { fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text },
   valueSub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
   placeholder: { color: colors.textMuted, fontFamily: fontFamily.regular },
   right: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
@@ -199,8 +235,8 @@ const s = StyleSheet.create({
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
     padding: spacing.lg,
-    maxHeight: '85%',
-    minHeight: '60%',
+    // Fixed, so the sheet doesn't jump between loading and showing results.
+    height: '75%',
   },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   sheetTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.text },
@@ -227,6 +263,9 @@ const s = StyleSheet.create({
   option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, minHeight: 56 },
   optionLabel: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
   optionSub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
+  lead: { fontFamily: fontFamily.bold, color: colors.text },
+  stripe: { alignSelf: 'stretch', width: 4, borderRadius: 2 },
+  alert: { fontFamily: fontFamily.semiBold, fontSize: fontSize.xs, color: colors.error, marginTop: 2 },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   empty: {
     fontFamily: fontFamily.regular,

@@ -8,7 +8,7 @@
 
 import React, { useEffect } from 'react';
 import { Animated, Dimensions, StyleSheet, View, type DimensionValue, type ViewStyle } from 'react-native';
-import { borderRadius, spacing } from '@/src/theme';
+import { borderRadius, colors, spacing } from '@/src/theme';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -85,11 +85,12 @@ export function ProcessOverviewSkeleton() {
 }
 
 /** Placeholder rows for a list that is loading (pickers). */
-export function ListSkeleton({ rows = 6 }: { rows?: number }) {
+/** Placeholder rows shaped like picker rows (56px, hairline between), so a list keeps its height while it loads. */
+export function ListSkeleton({ rows = 8 }: { rows?: number }) {
   return (
     <View accessibilityLabel="Loading">
       {Array.from({ length: rows }, (_, i) => (
-        <View key={i} style={st.listRow}>
+        <View key={i} style={[st.listRow, i > 0 && st.listDivider]}>
           <SkeletonBox width="62%" height={14} radius={6} />
           <SkeletonBox width="40%" height={10} radius={5} style={{ marginTop: spacing.sm }} />
         </View>
@@ -101,5 +102,6 @@ export function ListSkeleton({ rows = 6 }: { rows?: number }) {
 const st = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
   gap: { marginBottom: spacing.sm },
-  listRow: { paddingVertical: spacing.md },
+  listRow: { minHeight: 56, justifyContent: 'center', paddingVertical: spacing.md },
+  listDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
 });

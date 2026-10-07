@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { dialog } from '@/src/components/AppDialog';
 import { useRouter } from 'expo-router';
 import * as Device from 'expo-device';
 import { Ionicons } from '@expo/vector-icons';
@@ -52,6 +53,7 @@ export default function SettingsScreen() {
   const check = useUpdateStore((st) => st.check);
   const downloading = useUpdateStore((st) => st.downloading);
   const progress = useUpdateStore((st) => st.progress);
+  const downloaded = useUpdateStore((st) => st.downloaded);
   const installError = useUpdateStore((st) => st.installError);
   const install = useUpdateStore((st) => st.install);
   const [installId, setInstallId] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export default function SettingsScreen() {
 
   const appVersion = APP_VERSION ?? '—';
 
-  /** Download the APK and hand it straight to Android's installer. */
+  /** Download the APK; once downloaded, hand it to Android's installer. */
   const installUpdate = useCallback(async () => {
     if (!update?.downloadUrl && update?.kind !== 'js') {
       await openInBrowser(update?.pageUrl);
@@ -81,7 +83,7 @@ export default function SettingsScreen() {
     const err = useUpdateStore.getState().installError;
     if (!err) return;
     const blocked = err.kind === INSTALL_ERRORS.BLOCKED;
-    Alert.alert('Update failed', err.message, [
+    dialog('Update failed', err.message, [
       { text: 'Close', style: 'cancel' },
       blocked
         ? { text: 'Allow installs', onPress: () => openUnknownAppSourcesSettings().catch(() => {}) }
@@ -97,9 +99,10 @@ export default function SettingsScreen() {
       return 'Downloading…';
     }
     if (checking) return 'Checking…';
+    if (update?.available && downloaded === update.version) return `Install ${update.version}`;
     if (update?.available) return `Update to ${update.version}`;
     return 'Check for updates';
-  }, [downloading, progress, checking, update?.available, update?.version]);
+  }, [downloading, progress, checking, update?.available, update?.version, downloaded]);
 
   const onUpdatePress = useCallback(async () => {
     if (downloading) return;
@@ -116,7 +119,7 @@ export default function SettingsScreen() {
   const onToggleBiometric = async () => {
     if (!biometricEnabled) {
       if (!moduleReady) {
-        Alert.alert(
+        dialog(
           'Update needed',
           'Install the latest build of Post Harvest to enable biometric unlock.',
           undefined,
@@ -125,7 +128,7 @@ export default function SettingsScreen() {
         return;
       }
       if (!hardwareReady) {
-        Alert.alert(
+        dialog(
           'Biometric unavailable',
           'Enroll a fingerprint or face in your device settings, then try again.',
           undefined,
@@ -149,7 +152,7 @@ export default function SettingsScreen() {
   };
 
   const onSignOut = () => {
-    Alert.alert('Sign out?', 'You can sign back in with biometrics or your password.', [
+    dialog('Sign out?', 'You can sign back in with biometrics or your password.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Sign out',
@@ -163,7 +166,7 @@ export default function SettingsScreen() {
   };
 
   const onForgetDevice = () => {
-    Alert.alert(
+    dialog(
       'Forget this device?',
       'This clears your session and disables biometric unlock. You will need your password to sign back in.',
       [
@@ -275,7 +278,7 @@ export default function SettingsScreen() {
           onPress={onUpdatePress}
           loading={checking || (downloading && progress?.fraction == null)}
           disabled={downloading}
-          iconLeft="cloud-download-outline"
+          iconLeft={update?.available && downloaded === update.version ? 'checkmark-circle-outline' : 'cloud-download-outline'}
         />
         {updateError || installError ? (
           <>
@@ -381,7 +384,7 @@ const s = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: 6,
   },
-  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.error, marginTop: spacing.sm },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.error, marginTop: spacing.sm },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',

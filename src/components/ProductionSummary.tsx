@@ -1,13 +1,13 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SkeletonBox } from '@/src/components/Skeleton';
 import { scanApi, type GreenhouseTotals, type HarvesterKpi, type ProductionSummary as Summary } from '@/src/services/scan-api';
-import { colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { colors, spacing } from '@/src/theme';
 import { userMessage } from '@/src/services/user-message';
+import { num, summaryStyles as s, Tab, VarietyName } from '@/src/components/SummaryParts';
 
-const num = (v: number | null | undefined) => (v === null || v === undefined ? '—' : Math.round(v).toLocaleString());
 
 /**
  * Production's detail under the figures tiles: harvested vs received per
@@ -18,6 +18,8 @@ export function ProductionSummary({ farm }: { farm: string }) {
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One list at a time keeps the home screen short.
+  const [view, setView] = useState<'greenhouses' | 'harvesters'>('greenhouses');
 
   const load = useCallback(async () => {
     if (!farm) return;
@@ -63,25 +65,31 @@ export function ProductionSummary({ farm }: { farm: string }) {
 
   return (
     <View style={s.wrap}>
+      <View style={s.tabs} accessibilityRole="tablist">
+        <Tab label="Greenhouses" count={greenhouses.length} active={view === 'greenhouses'} onPress={() => setView('greenhouses')} />
+        <Tab label="Harvesters" count={harvesters.length} active={view === 'harvesters'} onPress={() => setView('harvesters')} />
+      </View>
       <View style={s.sectionHead}>
-        <Text style={s.sectionLabel}>BY GREENHOUSE · HARVESTED → RECEIVED</Text>
+        <Text style={s.sectionLabel}>
+          {view === 'greenhouses' ? 'HARVESTED → RECEIVED' : 'TODAY, MOST STEMS FIRST'}
+        </Text>
         {loading ? <Text style={s.sectionMeta}>Updating…</Text> : null}
       </View>
-      {greenhouses.length ? (
-        greenhouses.map((g) => <GreenhouseRow key={g.greenhouse} g={g} />)
-      ) : (
-        <Text style={s.empty}>Nothing harvested or received yet today.</Text>
-      )}
-
-      <View style={[s.sectionHead, { marginTop: spacing.lg }]}>
-        <Text style={s.sectionLabel}>HARVESTERS</Text>
-        <Text style={s.sectionMeta}>{harvesters.length} today</Text>
+      {/* Both lists stay built and the toggle only hides one, so switching is instant. */}
+      <View style={view === 'greenhouses' ? null : s.hidden}>
+        {greenhouses.length ? (
+          greenhouses.map((g) => <GreenhouseRow key={g.greenhouse} g={g} />)
+        ) : (
+          <Text style={s.empty}>Nothing harvested or received yet today.</Text>
+        )}
       </View>
-      {harvesters.length ? (
-        harvesters.map((h, i) => <HarvesterRow key={h.harvester} h={h} rank={i + 1} />)
-      ) : (
-        <Text style={s.empty}>No harvests recorded yet today.</Text>
-      )}
+      <View style={view === 'harvesters' ? null : s.hidden}>
+        {harvesters.length ? (
+          harvesters.map((h, i) => <HarvesterRow key={h.harvester} h={h} rank={i + 1} />)
+        ) : (
+          <Text style={s.empty}>No harvests recorded yet today.</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -95,7 +103,8 @@ function Bar({ ratio }: { ratio: number }) {
   );
 }
 
-function GreenhouseRow({ g }: { g: GreenhouseTotals }) {
+// Memoised: a card redraws only when its own figures change.
+const GreenhouseRow = React.memo(function GreenhouseRow({ g }: { g: GreenhouseTotals }) {
   const [open, setOpen] = useState(false);
   const ratio = g.harvested_stems > 0 ? g.received_stems / g.harvested_stems : g.received_stems > 0 ? 1 : 0;
   return (
@@ -123,10 +132,8 @@ function GreenhouseRow({ g }: { g: GreenhouseTotals }) {
       <Bar ratio={ratio} />
       {open
         ? g.varieties.map((v) => (
-            <View key={v.item_code} style={s.variety}>
-              <Text style={s.varietyName} numberOfLines={1}>
-                {v.item_name}
-              </Text>
+            <View key={`${v.item_code}|${v.stem_length ?? ''}`} style={s.variety}>
+              <VarietyName name={v.item_name} stemLength={v.stem_length} />
               <Text style={s.varietyNums}>
                 {num(v.harvested_stems)} → {num(v.received_stems)}
               </Text>
@@ -135,13 +142,20 @@ function GreenhouseRow({ g }: { g: GreenhouseTotals }) {
         : null}
     </View>
   );
-}
+});
 
-function HarvesterRow({ h, rank }: { h: HarvesterKpi; rank: number }) {
+const HarvesterRow = React.memo(function HarvesterRow({ h, rank }: { h: HarvesterKpi; rank: number }) {
+  const [open, setOpen] = useState(false);
   const receivedPct = h.buckets ? Math.round((h.received_buckets / h.buckets) * 100) : 0;
+  const picked = h.picked ?? [];
   return (
     <View style={s.card}>
-      <View style={s.cardHead}>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={s.cardHead}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
         <Text style={s.rank}>{rank}</Text>
         <View style={{ flex: 1 }}>
           <Text style={s.title} numberOfLines={1}>
@@ -155,64 +169,24 @@ function HarvesterRow({ h, rank }: { h: HarvesterKpi; rank: number }) {
           <Text style={s.pairNum}>{num(h.stems)}</Text>
           <Text style={s.meta}>stems</Text>
         </View>
-      </View>
+        {picked.length ? (
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+        ) : null}
+      </Pressable>
       <View style={s.kpis}>
         <Text style={s.kpi}>{h.stems_per_hour === null ? '—' : `${num(h.stems_per_hour)}/h`}</Text>
         <Text style={s.kpi}>{`${receivedPct}% received`}</Text>
       </View>
+      {open
+        ? picked.map((p) => (
+            <View key={`${p.item_code}|${p.stem_length ?? ''}`} style={s.variety}>
+              <VarietyName name={p.item_name} stemLength={p.stem_length} />
+              <Text style={s.varietyNums}>
+                {num(p.stems)} · {num(p.buckets)} {p.buckets === 1 ? 'bucket' : 'buckets'}
+              </Text>
+            </View>
+          ))
+        : null}
     </View>
   );
-}
-
-const s = StyleSheet.create({
-  wrap: { marginTop: spacing.md },
-  sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-  sectionLabel: { fontFamily: fontFamily.semiBold, fontSize: 10, color: colors.textMuted, letterSpacing: 1.4 },
-  sectionMeta: { fontFamily: fontFamily.medium, fontSize: 10, color: colors.textMuted },
-  empty: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.textMuted, paddingVertical: spacing.sm },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm + 2,
-    paddingBottom: spacing.sm,
-    marginBottom: spacing.xs + 2,
-  },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40 },
-  title: { fontFamily: fontFamily.semiBold, fontSize: fontSize.md, color: colors.text },
-  meta: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted, marginTop: 1 },
-  pair: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pairNum: { fontFamily: fontFamily.bold, fontSize: fontSize.md, color: colors.text },
-  bar: { height: 4, borderRadius: 2, backgroundColor: colors.surfaceAlt, marginTop: spacing.sm, overflow: 'hidden' },
-  barFill: { height: 4, borderRadius: 2 },
-  variety: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-    paddingVertical: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    marginTop: 6,
-  },
-  varietyName: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.text },
-  varietyNums: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
-  rank: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    textAlign: 'center',
-    lineHeight: 24,
-    backgroundColor: colors.surfaceAlt,
-    fontFamily: fontFamily.semiBold,
-    fontSize: fontSize.xs,
-    color: colors.text,
-    overflow: 'hidden',
-  },
-  kpis: { flexDirection: 'row', gap: spacing.md, marginTop: 4, paddingLeft: 32 },
-  kpi: { fontFamily: fontFamily.medium, fontSize: fontSize.xs, color: colors.textSecondary },
-  errorBox: { padding: spacing.md, borderRadius: 12, backgroundColor: '#FEF2F2', marginTop: spacing.md },
-  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: '#991B1B' },
-  retry: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: '#991B1B', marginTop: 4 },
 });

@@ -12,6 +12,7 @@ const SCRIPT_FOR: Record<string, string> = {
   grading: 'mobile_grading',
   ungrade_bunch: 'mobile_grading',
   graded_rejects: 'mobile_grading',
+  packhouse: 'mobile_grading',
   'bunch_actions.grading_check': 'mobile_grading_check',
   'bunch_actions.graded_discard': 'mobile_graded_discard',
   'bunch_actions.packing_reject': 'mobile_packing_reject',

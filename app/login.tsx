@@ -369,7 +369,7 @@ const s = StyleSheet.create({
   },
   primaryBtnText: {
     fontFamily: fontFamily.semiBold,
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
     color: colors.textOnPrimary,
   },
   bioFab: {

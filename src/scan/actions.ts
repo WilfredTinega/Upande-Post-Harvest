@@ -42,6 +42,14 @@ export interface ScanSession {
   harvester: Employee | null;
   bed: string;
   stems: string;
+  /** Graded Rejects: stems of the chosen variety on the packhouse floor. */
+  varietyBalance: number | null;
+  /** Graded Rejects: bumped after each line is added, so the day's log reloads. */
+  rejectsVersion: number;
+  /** Delivery: the delivery point being delivered to ('' = boxes without one). */
+  deliveryPoint: string | null;
+  /** Delivery: bumped after each delivered box, so its list reloads. */
+  deliveryVersion: number;
 }
 
 export const emptySession = (farm: string): ScanSession => ({
@@ -60,6 +68,10 @@ export const emptySession = (farm: string): ScanSession => ({
   harvester: null,
   bed: '',
   stems: '',
+  varietyBalance: null,
+  rejectsVersion: 0,
+  deliveryPoint: null,
+  deliveryVersion: 0,
 });
 
 /** Session inputs shown above the scan field. */
@@ -74,11 +86,13 @@ export type Requirement =
   | 'fieldRejectReason' // picked from the Rejection Reasons (field rejects)
   | 'plan' // truck label scanned first, opens the truck's Loading Plan
   | 'truckPick' // like 'plan', or picked from the open Loading Plans
+  | 'deliveryPoint' // Delivery: picked from the points with boxes on their way
   | 'greenhouse' // Harvesting: picked from the farm's greenhouses
   | 'variety' // Harvesting: picked, the greenhouse's recent varieties first
   | 'stemLength' // Harvesting: picked, only when harvesting by stem length (Settings)
   | 'harvester' // Harvesting: picked from the list
   | 'bed' // Harvesting: typed, optional
+  | 'floorVariety' // Graded Rejects: picked from what is on the packhouse floor, with its balance
   | 'stems'; // Harvesting: typed per bucket
 
 export type ActionKey =
@@ -99,11 +113,7 @@ export type ActionKey =
   | 'vase'
   | 'packing'
   | 'packing-reject'
-  | 'staging'
-  | 'loading-plan'
   | 'loading'
-  | 'dispatch'
-  | 'dispatch-form'
   | 'undispatch'
   | 'delivery';
 
@@ -113,6 +123,7 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 const PRODUCTION: ProcessKey = 'production';
 const PACKHOUSE: ProcessKey = 'packhouse';
 const DISPATCH: ProcessKey = 'dispatch';
+const DELIVERY: ProcessKey = 'delivery';
 const SHOP: ProcessKey = 'shop';
 const QUALITY: ProcessKey = 'quality';
 
@@ -131,11 +142,17 @@ export interface ActionDef {
   needsFarm: boolean;
   requirements: Requirement[];
   /** Loading Plan panel under the scan field: build the plan, load the truck, or dispatch it. */
-  panel?: 'plan' | 'load' | 'dispatch';
+  panel?: 'plan' | 'load' | 'dispatch' | 'rejects' | 'delivery';
   /** What the operator should scan next, given the session so far. */
   prompt: (s: ScanSession) => string;
   /** Form-style actions (nothing to scan): a button that records the setup instead of a scan field. */
-  submit?: { label: string; icon: IconName; run: (s: ScanSession, update: Update) => Promise<Outcome> };
+  submit?: {
+    label: string;
+    icon: IconName;
+    /** Asked (Yes/No) before running; nothing is asked when it returns null. */
+    confirm?: (s: ScanSession) => string | null;
+    run: (s: ScanSession, update: Update) => Promise<Outcome>;
+  };
   handle: (code: string, s: ScanSession, update: Update) => Promise<Outcome>;
 }
 
@@ -167,6 +184,11 @@ async function run(fn: () => Promise<Outcome>): Promise<Outcome> {
   } catch (err) {
     return fail(errorOf(err));
   }
+}
+
+/** Graders are recorded by payroll number; the id only when they have none. */
+function graderId(grader: Employee | null): string | undefined {
+  return grader ? grader.employee_number || grader.name : undefined;
 }
 
 // ── harvesting ────────────────────────────────────────────────────────────
@@ -432,7 +454,7 @@ export const ACTIONS: ActionDef[] = [
     icon: 'ribbon-outline',
     needsFarm: true,
     requirements: ['grader'],
-    prompt: (s) => (s.grader ? 'Scan a bunch QR' : 'Select or scan the grader first'),
+    prompt: (s) => (s.grader ? 'Scan a bunch QR' : 'Scan the grader QR'),
     handle: (code, s, update) =>
       run(async () => {
         if (!s.grader) {
@@ -441,12 +463,14 @@ export const ACTIONS: ActionDef[] = [
           if (!id) return warn('Invalid grader QR code');
           const emp = await scanApi.getEmployee(id);
           if (!emp.success || !emp.name) return fail(emp.error || `Grader ${id} not found`);
-          update({ grader: { name: emp.name, employee_name: emp.employee_name ?? emp.name } });
+          update({
+            grader: { name: emp.name, employee_name: emp.employee_name ?? emp.name, employee_number: emp.employee_number },
+          });
           return info(`Grader: ${emp.employee_name ?? emp.name}`, 'Now scan bunches');
         }
         const p = bunchPayload(code);
         if (!p) return fail('Invalid QR');
-        const r = await scanApi.grading(p.json, s.farm, s.grader.name);
+        const r = await scanApi.grading(p.json, s.farm, s.grader.employee_number || s.grader.name);
         if (r.success) {
           return ok(
             `${r.bunch_id} graded`,
@@ -476,7 +500,7 @@ export const ACTIONS: ActionDef[] = [
       run(async () => {
         const p = bunchPayload(code);
         if (!p) return warn('Invalid Bunch QR Code');
-        const r = await scanApi.ungrade(p.json, p.bunch.farm || s.farm, s.grader?.name);
+        const r = await scanApi.ungrade(p.json, p.bunch.farm || s.farm, graderId(s.grader));
         if (r.success) return ok(`${p.bunch.variety} ungraded`, `${r.stems ?? ''} stems returned to packhouse`);
         return rejected(r);
       }),
@@ -545,92 +569,28 @@ export const ACTIONS: ActionDef[] = [
         ]);
       }),
   },
-  // Dispatch: staging → loading plan → loading → dispatch
-  {
-    key: 'staging',
-    label: 'Staging',
-    description: 'Scan packed boxes into the dispatch bay',
-    group: DISPATCH,
-    icon: 'albums-outline',
-    needsFarm: false,
-    requirements: [],
-    prompt: () => 'Scan a packed box label',
-    handle: (code) =>
-      run(async () => {
-        if (!isBoxLabel(code)) return warn('Invalid Box Label!');
-        const r = await scanApi.stageBox(code.trim());
-        if (r.success) return ok(`Box ${r.box} staged`, [r.customer, r.delivery_point].filter(Boolean).join(' · '));
-        return rejected(r, [
-          ['already staged', 'warning'],
-          ['already dispatched', 'warning'],
-          ['not submitted', 'warning'],
-        ]);
-      }),
-  },
-  {
-    key: 'loading-plan',
-    label: 'Loading Plan',
-    description: 'Plan staged boxes onto a truck, per customer',
-    group: DISPATCH,
-    icon: 'git-network-outline',
-    needsFarm: true,
-    requirements: ['plan'],
-    panel: 'plan',
-    prompt: (s) =>
-      !s.plan
-        ? 'Scan the Truck Label'
-        : s.removeFromPlan
-          ? 'Scan a box to take it off the plan'
-          : 'Scan a staged box to plan it',
-    handle: (code, s, update) =>
-      run(async () => {
-        if (!s.plan) return openPlan(code, s, update, true);
-        if (parseTruck(code)) return warn('Truck already set', 'Clear the truck to plan another one');
-        if (!isBoxLabel(code)) return warn('Invalid Box Label!');
-        const box = code.trim();
-        const r = s.removeFromPlan
-          ? await scanApi.unplanBox(s.plan.name, box)
-          : await scanApi.planBox(s.plan.name, box);
-        if (r.plan) update({ plan: r.plan });
-        if (!r.success) {
-          return rejected(r, [
-            ['already on this', 'warning'],
-            ['already on loading plan', 'warning'],
-            ['not been staged', 'warning', 'Box not staged'],
-            ['not on this', 'warning'],
-            ['already dispatched', 'warning'],
-          ]);
-        }
-        const plan = r.plan!;
-        return s.removeFromPlan
-          ? ok(`Box ${box} taken off the plan`, `${plan.total_boxes} box(es) planned`)
-          : ok(
-              `Box ${box} → ${r.customer}${r.delivery_point ? ` · ${r.delivery_point}` : ''}`,
-              `${plan.total_boxes} box(es) · ${new Set(plan.customers.map((x) => x.customer)).size} customer(s), ` +
-                `${plan.customers.length} delivery point(s)`,
-            );
-      }),
-  },
+  // Dispatch: load & dispatch (plan, load and send one truck) → delivery
   {
     key: 'loading',
-    label: 'Loading',
-    description: 'Scan boxes onto the truck against its plan',
+    label: 'Load & Dispatch',
+    description: 'Plan a truck, scan its boxes on in order and send it',
     group: DISPATCH,
-    icon: 'arrow-forward-circle-outline',
+    icon: 'paper-plane-outline',
     needsFarm: true,
-    requirements: ['plan'],
-    panel: 'load',
+    requirements: ['truckPick'],
+    panel: 'dispatch',
     prompt: (s) =>
       !s.plan
-        ? 'Scan the Truck Label'
+        ? 'Choose the truck, or scan its label'
         : s.plan.docstatus === 1
-          ? 'Truck already dispatched'
+          ? 'Truck dispatched'
           : allLoaded(s.plan)
-            ? 'All boxes loaded — open Dispatch to send the truck'
+            ? 'All boxes loaded — tap Dispatch truck'
             : 'Scan each box as it goes onto the truck',
     handle: (code, s, update) =>
       run(async () => {
-        if (!s.plan) return openPlan(code, s, update, false);
+        // A truck with no open plan for this farm gets one.
+        if (!s.plan) return openPlan(code, s, update, true);
         if (s.plan.docstatus === 1) return warn('Truck already dispatched', 'Clear the truck to load another one');
         if (parseTruck(code)) return warn('Truck already set', 'Clear the truck to load another one');
         if (!isBoxLabel(code)) return warn('Invalid Box Label!');
@@ -655,70 +615,25 @@ export const ACTIONS: ActionDef[] = [
       }),
   },
   {
-    key: 'dispatch',
-    label: 'Dispatch',
-    description: 'Send a loaded truck: Delivery Notes per customer and delivery point',
-    group: DISPATCH,
-    icon: 'paper-plane-outline',
-    needsFarm: true,
-    requirements: ['truckPick'],
-    panel: 'dispatch',
-    prompt: (s) =>
-      !s.plan
-        ? 'Choose the truck, or scan its label'
-        : s.plan.docstatus === 1
-          ? 'Truck dispatched'
-          : allLoaded(s.plan)
-            ? 'All boxes loaded — tap Dispatch truck'
-            : `Still loading: ${s.plan.loaded_boxes}/${s.plan.total_boxes} boxes on the truck`,
-    handle: (code, s, update) =>
-      run(async () => {
-        if (!s.plan) return openPlan(code, s, update, false);
-        if (parseTruck(code)) return warn('Truck already set', 'Clear the truck to dispatch another one');
-        if (isBoxLabel(code)) return warn('Load boxes in Loading', 'Dispatch only sends a truck that is fully loaded');
-        return warn('Scan the Truck Label');
-      }),
-  },
-  {
     key: 'delivery',
     label: 'Delivery',
-    description: 'Deliver boxes at the destination',
-    group: DISPATCH,
+    description: 'Deliver the boxes of a delivery point, customer by customer',
+    group: DELIVERY,
     icon: 'checkmark-done-outline',
     needsFarm: true,
-    requirements: [],
-    prompt: () => 'Scan a box label',
-    handle: (code, s) =>
-      run(async () => {
-        if (!isBoxLabel(code)) return warn('Invalid Box Label!');
-        const r = await scanApi.delivery(code.trim(), s.farm);
-        if (r.success) return ok(`Delivered: ${r.progress}`, `${r.box_name} · ${r.delivery_form}`);
-        return rejected(r, [['already delivered', 'warning']]);
-      }),
-  },
-  {
-    key: 'dispatch-form',
-    label: 'Dispatch Form',
-    description: 'Farm transfer / trip Dispatch Form',
-    group: DISPATCH,
-    icon: 'bus-outline',
-    needsFarm: true,
-    requirements: ['truck'],
-    prompt: (s) => (s.truck ? 'Scan a box label' : 'Scan the Truck Label first'),
+    requirements: ['deliveryPoint'],
+    panel: 'delivery',
+    prompt: (s) => (s.deliveryPoint === null ? 'Choose the delivery point' : 'Scan each box as it is delivered'),
     handle: (code, s, update) =>
       run(async () => {
-        if (!s.truck) {
-          const truck = parseTruck(code);
-          if (!truck) return warn('Please scan the Truck Label first');
-          update({ truck });
-          return info(`Truck ${truck}`, 'Now scan box labels');
+        if (s.deliveryPoint === null) return warn('Choose the delivery point first');
+        if (!isBoxLabel(code)) return warn('Invalid Box Label!');
+        const r = await scanApi.delivery(code.trim(), s.farm);
+        if (r.success) {
+          update({ deliveryVersion: s.deliveryVersion + 1 });
+          return ok(`Delivered: ${r.progress}`, `${r.box_name} · ${r.delivery_form}`);
         }
-        const r = await scanApi.dispatch(s.truck, code.trim(), s.farm);
-        if (r.success) return ok(`Dispatched: ${r.progress}`, `${r.dispatch_type} · ${r.dispatch_form}`);
-        return rejected(r, [
-          ['already dispatched', 'warning', 'Box already loaded to Nairobi'],
-          ['already loaded', 'warning', 'Box already loaded'],
-        ]);
+        return rejected(r, [['already delivered', 'warning']]);
       }),
   },
   {
@@ -818,7 +733,7 @@ export const ACTIONS: ActionDef[] = [
       run(async () => {
         const p = bunchPayload(code);
         if (!p) return warn('Invalid Bunch QR Code');
-        const r = await scanApi.gradedDiscard(p.json, s.farm, s.grader?.name);
+        const r = await scanApi.gradedDiscard(p.json, s.farm, graderId(s.grader));
         if (r.success) return ok(r.message || `${p.bunch.variety} discarded`, r.bunch_id);
         return rejected(r, [
           ['not graded', 'warning'],
@@ -850,26 +765,37 @@ export const ACTIONS: ActionDef[] = [
     key: 'graded-rejects',
     label: 'Graded Rejects',
     description: 'Stems rejected at grading, out of the packhouse store',
-    group: QUALITY,
+    group: PACKHOUSE,
     icon: 'remove-circle-outline',
     needsFarm: true,
-    requirements: ['variety', 'stems', 'graderOptional'],
+    requirements: ['floorVariety', 'stems'],
+    panel: 'rejects',
     prompt: (s) =>
-      !s.variety ? 'Select the variety' : !stemCount(s) ? 'Enter the stems rejected' : `Record ${stemCount(s)} rejected stems`,
-    handle: async () => warn('Nothing to scan here', 'Choose the variety, enter the stems and tap Record rejects'),
+      !s.variety ? 'Select the variety' : !stemCount(s) ? 'Enter the stems rejected' : `Add ${stemCount(s)} rejected stems`,
+    handle: async () => warn('Nothing to scan here', 'Choose the variety, enter the stems and tap Add to rejects'),
     submit: {
-      label: 'Record rejects',
-      icon: 'checkmark-circle-outline',
+      label: 'Add to rejects',
+      icon: 'add-circle-outline',
+      confirm: (s) =>
+        s.variety && stemCount(s) ? `Add ${stemCount(s)} stems of ${s.variety} to today's rejects?` : null,
+      // Saved on today's draft entry; the panel below submits the day's rejects in one go.
       run: (s, update) =>
         run(async () => {
           if (!s.variety) return warn('Select the variety first');
           if (!stemCount(s)) return warn('Enter the number of stems rejected');
-          const r = await scanApi.gradedRejects(s.farm, s.variety, stemCount(s), s.grader?.name);
-          if (r.success) {
-            update({ stems: '' });
-            return ok(`${r.qty} stems rejected`, `${r.variety} · ${r.warehouse}`);
+          if (s.varietyBalance !== null && stemCount(s) > s.varietyBalance) {
+            return warn(`Only ${s.varietyBalance} stems on the floor`, 'Enter no more than the balance');
           }
-          return rejected(r, [['insufficient stock', 'error', 'Not enough stems in the packhouse store']]);
+          const r = await scanApi.addReject(s.farm, s.variety, stemCount(s));
+          if (r.success) {
+            update({
+              stems: '',
+              varietyBalance: s.varietyBalance === null ? null : Math.max(s.varietyBalance - (r.qty ?? 0), 0),
+              rejectsVersion: s.rejectsVersion + 1,
+            });
+            return ok(`${r.qty} stems added to rejects`, `${r.variety} · not yet submitted`);
+          }
+          return rejected(r, [['left on the floor', 'error', 'Not enough stems on the floor']]);
         }),
     },
   },
@@ -887,7 +813,7 @@ export const ACTIONS: ActionDef[] = [
         if (!s.rejectionReason) return warn('Fill rejection reason');
         const p = bunchPayload(code);
         if (!p) return warn('Invalid Bunch QR Code');
-        const r = await scanApi.packingReject(p.json, s.farm, s.rejectionReason, s.grader?.name);
+        const r = await scanApi.packingReject(p.json, s.farm, s.rejectionReason, graderId(s.grader));
         if (r.success) return ok('Rejected successfully!', `${p.bunch.variety} · ${r.bunch_id}`);
         return rejected(r, [
           ['already rejected', 'warning'],

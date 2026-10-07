@@ -13,6 +13,7 @@ import {
 } from '@/src/services/updates';
 import {
   downloadApk,
+  findDownloadedApk,
   InstallError,
   launchInstaller,
   type DownloadProgress,
@@ -32,7 +33,9 @@ import { userMessage } from '@/src/services/user-message';
  *    five minutes) and applied without asking.
  *  - APK: a GitHub Releases check, once a day, for a build whose runtime
  *    moved. The download is automatic; Android's own installer screen still
- *    asks — no ordinary app can install silently.
+ *    asks — no ordinary app can install silently. A finished APK is kept, so
+ *    a dismissed installer is reopened from Settings ("Install") without
+ *    downloading again; a download started there waits for that tap.
  *
  * Nothing runs in development or Expo Go (`Updates.isEnabled` is false).
  */
@@ -54,6 +57,15 @@ let apkBusy = false;
 const attempted = new Set<string>();
 /** A downloaded APK waiting for the app to return to the foreground (Android 10+). */
 let pendingApk: string | null = null;
+/** The finished download, read synchronously by `install`. */
+let readyApk: { version: string; uri: string } | null = null;
+
+/** Still complete on disk? Without a known size, the earlier download is trusted. */
+async function readyUri(release: UpdateCheck): Promise<string | null> {
+  if (!readyApk || readyApk.version !== release.version) return null;
+  if (!release.sizeBytes) return readyApk.uri;
+  return findDownloadedApk(release.downloadUrl, { fileName: release.assetName, expectedBytes: release.sizeBytes });
+}
 
 export interface UpdateState {
   update: UpdateCheck | null;
@@ -61,6 +73,8 @@ export interface UpdateState {
   error: { kind: UpdateErrorKind; message: string } | null;
   downloading: boolean;
   progress: DownloadProgress | null;
+  /** The version whose APK is fully downloaded and waiting to be installed. */
+  downloaded: string | null;
   installError: { kind: InstallErrorKind | null; message: string; auto: boolean } | null;
   otaChecking: boolean;
   /** A bundle is downloaded and the restart is seconds away — drives the toast. */
@@ -71,10 +85,14 @@ export interface UpdateState {
   autoCheck: () => Promise<void>;
   /** The Check for updates button: ignores the throttle, surfaces failures. */
   check: () => Promise<UpdateCheck | null>;
-  /** Download a release and hand it to the installer. Resolves whether the installer was reached. */
+  /** Download a release, or — once downloaded — hand it to the installer. A
+   *  manual download stops there and waits for the next press; an automatic one
+   *  opens the installer. Resolves whether that step succeeded. */
   install: (target?: UpdateCheck | null, opts?: { auto?: boolean }) => Promise<boolean>;
   /** Launch a held installer once the app is visible again. */
   flushPending: () => void;
+  /** Pick up an APK downloaded earlier (this run or a previous one) for `update`. */
+  syncDownloaded: (update: UpdateCheck | null) => Promise<void>;
 }
 
 /** Same-runtime update as a bundle: 'applied', 'current' (nothing newer) or 'failed'. */
@@ -99,6 +117,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   error: null,
   downloading: false,
   progress: null,
+  downloaded: null,
   installError: null,
   otaChecking: false,
   otaReady: false,
@@ -145,7 +164,10 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
 
   autoCheck: async () => {
     const result = await autoCheckForUpdate(APP_VERSION);
-    if (result && !get().update) set({ update: result });
+    if (result && !get().update) {
+      set({ update: result });
+      await get().syncDownloaded(result);
+    }
   },
 
   check: async () => {
@@ -156,6 +178,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       if (await get().checkOta({ force: true })) return null;
       const result = await checkForUpdate(APP_VERSION);
       set({ update: result });
+      await get().syncDownloaded(result);
       return result;
     } catch (err) {
       set({
@@ -181,14 +204,19 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     }
 
     apkBusy = true;
-    set({ downloading: true, progress: null, installError: null });
+    set({ installError: null });
     try {
       if (release.kind === UPDATE_KINDS.JS) {
-        const js = await applyJsUpdate();
-        if (js === 'applied') return true;
-        if (js === 'current') {
-          set((st) => ({ update: st.update ? { ...st.update, available: false } : st.update }));
-          return false;
+        set({ downloading: true, progress: null });
+        try {
+          const js = await applyJsUpdate();
+          if (js === 'applied') return true;
+          if (js === 'current') {
+            set((st) => ({ update: st.update ? { ...st.update, available: false } : st.update }));
+            return false;
+          }
+        } finally {
+          set({ downloading: false, progress: null });
         }
         // Never pull a full APK on its own initiative for a same-runtime release.
         if (auto) return false;
@@ -199,16 +227,31 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         return false;
       }
 
-      const file = await downloadApk(release.downloadUrl, {
-        fileName: release.assetName,
-        onProgress: (progress) => set({ progress }),
-        expectedBytes: release.sizeBytes,
-      });
+      let uri = await readyUri(release);
+      if (!uri) {
+        readyApk = null;
+        set({ downloaded: null, downloading: true, progress: null });
+        try {
+          const file = await downloadApk(release.downloadUrl, {
+            fileName: release.assetName,
+            onProgress: (progress) => set({ progress }),
+            expectedBytes: release.sizeBytes,
+          });
+          uri = file.uri;
+        } finally {
+          set({ downloading: false, progress: null });
+        }
+        readyApk = { version: release.version, uri };
+        set({ downloaded: release.version });
+        // Pressed by hand: the button now reads "Install" and waits for that tap.
+        if (!auto) return true;
+      }
+
       if (AppState.currentState !== 'active') {
-        pendingApk = file.uri;
+        pendingApk = uri;
         return false;
       }
-      await launchInstaller(file.uri);
+      await launchInstaller(uri);
       return true;
     } catch (err) {
       set({
@@ -221,7 +264,6 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       return false;
     } finally {
       apkBusy = false;
-      set({ downloading: false, progress: null });
     }
   },
 
@@ -239,5 +281,17 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         },
       });
     });
+  },
+
+  syncDownloaded: async (update) => {
+    if (!update?.available || update.kind === UPDATE_KINDS.JS) return;
+    if (readyApk?.version === update.version) return;
+    const uri = await findDownloadedApk(update.downloadUrl, {
+      fileName: update.assetName,
+      expectedBytes: update.sizeBytes,
+    });
+    if (!uri) return;
+    readyApk = { version: update.version, uri };
+    set({ downloaded: update.version });
   },
 }));

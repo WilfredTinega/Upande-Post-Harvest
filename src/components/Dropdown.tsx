@@ -13,6 +13,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
+/** Rows shown before searching; the rest are found by search. */
+const MAX_ROWS = 20;
+
 export interface DropdownOption {
   label: string;
   value: string;
@@ -29,6 +32,8 @@ interface DropdownProps {
   disabled?: boolean;
   invalid?: boolean;
   emptyText?: string;
+  /** Keep `label` for the picker's title only, e.g. when the field sits in a row. */
+  inline?: boolean;
 }
 
 export function Dropdown({
@@ -41,6 +46,7 @@ export function Dropdown({
   disabled = false,
   invalid = false,
   emptyText = 'No matches',
+  inline = false,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -49,7 +55,7 @@ export function Dropdown({
   const selected = options.find((o) => o.value === value);
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return options;
+    if (!query.trim()) return options.slice(0, MAX_ROWS);
     const q = query.toLowerCase();
     return options.filter(
       (o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
@@ -58,7 +64,7 @@ export function Dropdown({
 
   return (
     <View>
-      {label ? <Text style={s.label}>{label}</Text> : null}
+      {label && !inline ? <Text style={s.label}>{label}</Text> : null}
       <TouchableOpacity
         style={[s.field, invalid && s.fieldError, disabled && { opacity: 0.6 }]}
         onPress={() => !disabled && setOpen(true)}
@@ -70,7 +76,7 @@ export function Dropdown({
         <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
       </TouchableOpacity>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={s.overlay}>
           {/* Tapping outside the sheet closes it. A sibling, not a wrapper, so the list still scrolls. */}
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close" />
@@ -101,6 +107,7 @@ export function Dropdown({
               data={filtered}
               keyExtractor={(it) => it.value}
               keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={s.separator} />}
               ListEmptyComponent={
                 <View style={s.empty}>
@@ -157,12 +164,13 @@ const s = StyleSheet.create({
   value: { fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text, flex: 1 },
   placeholder: { color: colors.textMuted },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '75%',
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    // Fixed, so the sheet doesn't jump between loading and showing results.
+    height: '75%',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
@@ -181,7 +189,7 @@ const s = StyleSheet.create({
   },
   search: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text, padding: 0 },
   option: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
-  optionLabel: { fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text },
+  optionLabel: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
   optionSub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   empty: { padding: spacing.xl, alignItems: 'center' },
