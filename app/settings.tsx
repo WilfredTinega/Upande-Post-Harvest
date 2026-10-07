@@ -52,6 +52,7 @@ export default function SettingsScreen() {
   const check = useUpdateStore((st) => st.check);
   const downloading = useUpdateStore((st) => st.downloading);
   const progress = useUpdateStore((st) => st.progress);
+  const downloaded = useUpdateStore((st) => st.downloaded);
   const installError = useUpdateStore((st) => st.installError);
   const install = useUpdateStore((st) => st.install);
   const [installId, setInstallId] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export default function SettingsScreen() {
 
   const appVersion = APP_VERSION ?? '—';
 
-  /** Download the APK and hand it straight to Android's installer. */
+  /** Download the APK; once downloaded, hand it to Android's installer. */
   const installUpdate = useCallback(async () => {
     if (!update?.downloadUrl && update?.kind !== 'js') {
       await openInBrowser(update?.pageUrl);
@@ -97,9 +98,10 @@ export default function SettingsScreen() {
       return 'Downloading…';
     }
     if (checking) return 'Checking…';
+    if (update?.available && downloaded === update.version) return `Install ${update.version}`;
     if (update?.available) return `Update to ${update.version}`;
     return 'Check for updates';
-  }, [downloading, progress, checking, update?.available, update?.version]);
+  }, [downloading, progress, checking, update?.available, update?.version, downloaded]);
 
   const onUpdatePress = useCallback(async () => {
     if (downloading) return;
@@ -275,7 +277,7 @@ export default function SettingsScreen() {
           onPress={onUpdatePress}
           loading={checking || (downloading && progress?.fraction == null)}
           disabled={downloading}
-          iconLeft="cloud-download-outline"
+          iconLeft={update?.available && downloaded === update.version ? 'checkmark-circle-outline' : 'cloud-download-outline'}
         />
         {updateError || installError ? (
           <>
