@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { storage, StorageKeys } from './storage';
-import { API_MODULE } from './api-module';
+import { endpoint } from './api-module';
 import { probeBaseUrl } from './url';
 import { humanText } from './user-message';
 
@@ -20,19 +20,32 @@ export interface LoginResult {
 }
 
 /**
- * Logs in via `upande_postharvest.mobile_api.auth.mobile_login`, which returns the
- * sid in the JSON body — on mobile the stock /api/method/login Set-Cookie
- * header is absorbed by the native cookie store and never exposed to JS.
+ * Logs in with the stock /api/method/login, then reads the sid back from the
+ * `auth.mobile_login` endpoint — on mobile the login Set-Cookie header is
+ * absorbed by the native cookie store, which sends it on the follow-up call.
  * Persists the sid + instance URL + credentials for silent re-login.
  */
 export async function loginToServer(bareUrl: string, email: string, password: string): Promise<LoginResult> {
   const baseUrl = await probeBaseUrl(bareUrl);
 
-  const res = await axios.post(
-    `${baseUrl}/api/method/${API_MODULE}.auth.mobile_login`,
+  const login = await axios.post(
+    `${baseUrl}/api/method/login`,
     { usr: email, pwd: password },
     { headers: { 'Content-Type': 'application/json' }, timeout: 15000, validateStatus: () => true },
   );
+  if (login.status === 401 || login.status === 403) {
+    throw new Error('Invalid email or password.');
+  }
+  if (login.status < 200 || login.status >= 300) {
+    throw new Error(humanText(extractError(login.data)) ?? 'Could not sign in. Try again.');
+  }
+
+  const route = endpoint('auth.mobile_login');
+  const res = await axios.post(`${baseUrl}${route.path}`, route.args, {
+    headers: { 'Content-Type': 'application/json' },
+    timeout: 15000,
+    validateStatus: () => true,
+  });
 
   if (res.status === 401 || res.status === 403) {
     throw new Error('Invalid email or password.');

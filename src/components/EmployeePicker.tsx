@@ -37,8 +37,8 @@ export function EmployeePicker({ label, value, onChange, placeholder = 'Select e
   useEffect(() => {
     if (!open) return;
     const mine = ++seq.current;
-    setLoading(true);
     const t = setTimeout(async () => {
+      setLoading(true);
       try {
         const rows = await scanApi.searchEmployees(query);
         if (mine === seq.current) {

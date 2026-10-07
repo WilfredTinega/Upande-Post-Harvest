@@ -1,15 +1,40 @@
-import React from 'react';
-import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 interface CardProps {
   title?: string;
   style?: ViewStyle;
+  /** Tap the title to show or hide the body (needs a title). */
+  collapsible?: boolean;
+  /** Whether a collapsible card starts open. */
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }
 
-export function Card({ title, style, children }: CardProps) {
+export function Card({ title, style, collapsible, defaultOpen = false, children }: CardProps) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  if (collapsible && title) {
+    return (
+      <View style={[s.card, style]}>
+        <Pressable
+          onPress={() => setOpen((o) => !o)}
+          style={[s.titleRow, open && { marginBottom: spacing.md }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          accessibilityLabel={title}
+        >
+          <Text style={[s.title, { marginBottom: 0, flex: 1 }]}>{title}</Text>
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+        </Pressable>
+        {open ? children : null}
+      </View>
+    );
+  }
+
   return (
     <View style={[s.card, style]}>
       {title ? <Text style={s.title}>{title}</Text> : null}
@@ -60,6 +85,7 @@ const s = StyleSheet.create({
     borderColor: colors.border,
     marginBottom: spacing.md,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   title: {
     fontFamily: fontFamily.semiBold,
     fontSize: fontSize.sm,

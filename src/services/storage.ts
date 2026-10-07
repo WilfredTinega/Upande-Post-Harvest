@@ -12,6 +12,8 @@ export const StorageKeys = {
   farm: 'farm',
   // Processes this scanner is dedicated to (JSON array of ProcessKey).
   processes: 'processes',
+  // Harvesting asks for the stem length per bucket ('1' / '0').
+  harvestByStemLength: 'harvest_by_stem_length',
   // Farm list from the last successful setup load, offered before sign-in.
   farmsCache: 'farms_cache',
   biometricEnabled: 'biometric_enabled',

@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Updates from 'expo-updates';
 import * as Device from 'expo-device';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/src/components/Screen';
@@ -38,11 +37,14 @@ export default function SettingsScreen() {
   const logout = useAuthStore((s) => s.logout);
   const forgetDevice = useAuthStore((s) => s.forgetDevice);
   const { showSuccess, showError } = useToast();
-  const [moduleReady, setModuleReady] = useState(false);
+  const [moduleReady] = useState(() => Biometric.isModuleAvailable());
   const [hardwareReady, setHardwareReady] = useState(false);
   const loadSetup = useScanStore((st) => st.load);
   const setupLoaded = useScanStore((st) => st.loaded);
   const canViewDevices = useScanStore((st) => st.canViewDevices);
+  const processes = useScanStore((st) => st.processes);
+  const harvestByStemLength = useScanStore((st) => st.harvestByStemLength);
+  const setHarvestByStemLength = useScanStore((st) => st.setHarvestByStemLength);
 
   const update = useUpdateStore((st) => st.update);
   const checking = useUpdateStore((st) => st.checking);
@@ -63,13 +65,10 @@ export default function SettingsScreen() {
   }, [setupLoaded, loadSetup]);
 
   useEffect(() => {
-    setModuleReady(Biometric.isModuleAvailable());
     Biometric.isAvailable().then(setHardwareReady);
   }, []);
 
   const appVersion = APP_VERSION ?? '—';
-  const runtimeVersion = Updates.runtimeVersion || null;
-  const otaLabel = Updates.isEmbeddedLaunch ? 'Built-in bundle' : `OTA bundle ${Updates.updateId?.slice(0, 8) ?? ''}`;
 
   /** Download the APK and hand it straight to Android's installer. */
   const installUpdate = useCallback(async () => {
@@ -87,7 +86,7 @@ export default function SettingsScreen() {
       blocked
         ? { text: 'Allow installs', onPress: () => openUnknownAppSourcesSettings().catch(() => {}) }
         : { text: 'Open in browser', onPress: () => openInBrowser(update?.pageUrl) },
-    ]);
+    ], { cancelable: true });
   }, [update, install]);
 
   // One button, three jobs in the order they happen: check, update, progress.
@@ -120,6 +119,8 @@ export default function SettingsScreen() {
         Alert.alert(
           'Update needed',
           'Install the latest build of Post Harvest to enable biometric unlock.',
+          undefined,
+          { cancelable: true },
         );
         return;
       }
@@ -127,6 +128,8 @@ export default function SettingsScreen() {
         Alert.alert(
           'Biometric unavailable',
           'Enroll a fingerprint or face in your device settings, then try again.',
+          undefined,
+          { cancelable: true },
         );
         return;
       }
@@ -156,7 +159,7 @@ export default function SettingsScreen() {
           router.replace('/login');
         },
       },
-    ]);
+    ], { cancelable: true });
   };
 
   const onForgetDevice = () => {
@@ -174,6 +177,7 @@ export default function SettingsScreen() {
           },
         },
       ],
+      { cancelable: true },
     );
   };
 
@@ -204,6 +208,21 @@ export default function SettingsScreen() {
         <ScannerConfig />
       </Card>
 
+      {processes.includes('production') ? (
+        <Card title="Harvesting">
+          <View style={s.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Enter stem length</Text>
+              <Text style={s.rowHint}>
+                Pick the stem length for each bucket. Varieties that have stem-length variants are harvested as
+                that variant; the others keep their item and record the length.
+              </Text>
+            </View>
+            <Toggle value={harvestByStemLength} onChange={() => setHarvestByStemLength(!harvestByStemLength)} />
+          </View>
+        </Card>
+      ) : null}
+
       <Card title="Security">
         <View style={s.row}>
           <View style={{ flex: 1 }}>
@@ -222,7 +241,6 @@ export default function SettingsScreen() {
 
       <Card title="App updates">
         <InfoRow label="Installed" value={appVersion} />
-        {runtimeVersion ? <InfoRow label="Runtime" value={`${runtimeVersion} · ${otaLabel}`} /> : null}
         {update ? (
           <>
             <InfoRow
@@ -280,19 +298,20 @@ export default function SettingsScreen() {
         ) : null}
       </Card>
 
-      <Card title="This device">
-        <InfoRow label="Model" value={[Device.brand, Device.modelName].filter(Boolean).join(' ') || '—'} />
-        {Device.deviceName ? <InfoRow label="Name" value={Device.deviceName} /> : null}
-        <InfoRow label="OS" value={`${Platform.OS === 'android' ? 'Android' : Platform.OS} ${Device.osVersion ?? ''}`.trim()} />
-        <InfoRow label="Install ID" value={installId ? installId.slice(0, 8) : '—'} />
-        {canViewDevices ? (
+      {/* Device details and the device register: System Managers only. */}
+      {canViewDevices ? (
+        <Card title="This device" collapsible>
+          <InfoRow label="Model" value={[Device.brand, Device.modelName].filter(Boolean).join(' ') || '—'} />
+          {Device.deviceName ? <InfoRow label="Name" value={Device.deviceName} /> : null}
+          <InfoRow label="OS" value={`${Platform.OS === 'android' ? 'Android' : Platform.OS} ${Device.osVersion ?? ''}`.trim()} />
+          <InfoRow label="Install ID" value={installId ? installId.slice(0, 8) : '—'} />
           <TouchableOpacity style={s.linkRow} activeOpacity={0.7} onPress={() => router.push('/devices')}>
             <Ionicons name="phone-portrait-outline" size={18} color={colors.text} />
             <Text style={s.linkText}>Devices running the app</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </TouchableOpacity>
-        ) : null}
-      </Card>
+        </Card>
+      ) : null}
 
       <Card title="Session">
         <Button label="Sign out" variant="outline" onPress={onSignOut} />

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/src/components/Screen';
-import { Alert as Notice, Card } from '@/src/components/Card';
+import { Card } from '@/src/components/Card';
 import { Button } from '@/src/components/Button';
 import { Dropdown, type DropdownOption } from '@/src/components/Dropdown';
 import { EmployeePicker } from '@/src/components/EmployeePicker';
@@ -12,9 +12,11 @@ import { LoadingPlanPanel } from '@/src/components/LoadingPlanPanel';
 import { SearchPicker } from '@/src/components/SearchPicker';
 import { Spinner } from '@/src/components/Spinner';
 import { SkeletonBox } from '@/src/components/Skeleton';
+import { BlockerModal, type BlockerTone } from '@/src/components/BlockerModal';
+import { useToast } from '@/src/components/Toast';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
-import { dispatchPlan, emptySession, getAction, type Outcome, type ScanSession, type Tone } from '@/src/scan/actions';
+import { dispatchPlan, emptySession, getAction, type Outcome, type ScanSession } from '@/src/scan/actions';
 import { scanApi, type Greenhouse, type LoadingPlan, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
@@ -22,32 +24,30 @@ import { audio } from '@/src/audio';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { userMessage } from '@/src/services/user-message';
 
-interface HistoryEntry extends Outcome {
-  id: number;
-  at: Date;
-  code: string;
-}
-
-const HISTORY_LIMIT = 30;
-
-const TONE: Record<Tone, { bg: string; fg: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = {
-  success: { bg: '#F0FDF4', fg: '#166534', icon: 'checkmark-circle' },
-  warning: { bg: '#FFFBEB', fg: '#92400E', icon: 'warning' },
-  error: { bg: '#FEF2F2', fg: '#991B1B', icon: 'close-circle' },
-  info: { bg: '#EEF2FF', fg: '#3730A3', icon: 'information-circle' },
-};
+/** A successful scan's toast stays up this long. */
+const SUCCESS_TOAST_MS = 1000;
 
 interface HarvestLookups {
   loading: boolean;
   error: string | null;
   greenhouses: Greenhouse[];
   varieties: Variety[];
+  /** Harvesting by stem length: the lengths to pick from. */
+  stemLengths: string[];
   reasons: string[];
   /** Varieties harvested into the chosen greenhouse lately, most first. */
   recent: string[];
 }
 
-const NO_LOOKUPS: HarvestLookups = { loading: false, error: null, greenhouses: [], varieties: [], reasons: [], recent: [] };
+const NO_LOOKUPS: HarvestLookups = {
+  loading: false,
+  error: null,
+  greenhouses: [],
+  varieties: [],
+  stemLengths: [],
+  reasons: [],
+  recent: [],
+};
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -59,9 +59,18 @@ export default function ScanScreen() {
 
   const [session, setSession] = useState<ScanSession>(() => emptySession(farm));
   const sessionRef = useRef(session);
-  sessionRef.current = session;
+  useLayoutEffect(() => {
+    sessionRef.current = session;
+  });
 
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  // A scan (or lookup) that didn't go through, shown in a dialog until the operator dismisses it.
+  const [blocker, setBlocker] = useState<{
+    tone: BlockerTone;
+    title: string;
+    detail?: string;
+    retry?: () => void;
+  } | null>(null);
+  const { notify } = useToast();
   const [count, setCount] = useState(0);
   const [pending, setPending] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -69,7 +78,6 @@ export default function ScanScreen() {
   const scanRef = useRef<ScanFieldHandle>(null);
   const stemsRef = useRef<TextInput>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const nextId = useRef(1);
 
   const refocus = useCallback(() => focusWhenReady(scanRef), []);
 
@@ -105,14 +113,24 @@ export default function ScanScreen() {
         if (outcome.tone === 'success' || outcome.tone === 'info') audio.beep();
         else audio.error();
         if (outcome.counts) setCount((n) => n + 1);
-        setHistory((h) => [{ ...outcome, id: nextId.current++, at: new Date(), code }, ...h].slice(0, HISTORY_LIMIT));
+        if (outcome.tone === 'success' || outcome.tone === 'info') {
+          const text = outcome.detail ? `${outcome.title}\n${outcome.detail}` : outcome.title;
+          notify(text, outcome.tone, SUCCESS_TOAST_MS);
+        } else {
+          setBlocker({ tone: outcome.tone, title: outcome.title, detail: outcome.detail });
+        }
         setPending((n) => n - 1);
         // Harvesting: each bucket needs its own stem count, so go straight to it.
         if (stemsPerBucket && outcome.counts && !sessionRef.current.stems) stemsRef.current?.focus();
       });
     },
-    [stemsPerBucket],
+    [stemsPerBucket, notify],
   );
+
+  const closeBlocker = () => {
+    setBlocker(null);
+    refocus();
+  };
 
   const onScan = useCallback(
     (code: string) => {
@@ -124,14 +142,19 @@ export default function ScanScreen() {
 
   // ── Harvesting lookups ──────────────────────────────────────────────────
   const [harvest, setHarvest] = useState<HarvestLookups>(NO_LOOKUPS);
+  // Bumped by "Try again" on a failed lookup, to load the lists again.
+  const [lookupRetries, setLookupRetries] = useState(0);
   // Greenhouses and varieties: Harvesting; varieties alone: Graded Rejects.
   const needsHarvestLookups = req.includes('greenhouse') || req.includes('variety');
+  // Harvesting by stem length (Settings): varieties are listed once each, plus a length to pick.
+  const harvestByStemLength = useScanStore((st) => st.harvestByStemLength);
+  const stemMode = harvestByStemLength && req.includes('stemLength');
 
   const loadHarvest = useCallback(() => {
     if (!needsHarvestLookups || !farm) return;
     setHarvest((h) => ({ ...h, loading: true, error: null }));
     scanApi
-      .harvestSetup(farm)
+      .harvestSetup(farm, stemMode)
       .then((r) => {
         if (!r.success) throw new Error(r.error || 'Could not load greenhouses');
         setHarvest((h) => ({
@@ -139,27 +162,38 @@ export default function ScanScreen() {
           loading: false,
           greenhouses: r.greenhouses ?? [],
           varieties: r.varieties ?? [],
+          stemLengths: r.stem_lengths ?? [],
           reasons: r.field_reject_reasons ?? [],
         }));
       })
-      .catch((err) =>
-        setHarvest((h) => ({ ...h, loading: false, error: userMessage(err, 'Could not load the lists.') })),
-      );
-  }, [needsHarvestLookups, farm]);
+      .catch((err) => {
+        const error = userMessage(err, 'Could not load the lists.');
+        setHarvest((h) => ({ ...h, loading: false, error }));
+        setBlocker({ tone: 'error', title: 'Could not load the lists', detail: error, retry: () => setLookupRetries((n) => n + 1) });
+      });
+  }, [needsHarvestLookups, farm, stemMode]);
 
-  useEffect(loadHarvest, [loadHarvest]);
+  useEffect(() => {
+    const t = setTimeout(loadHarvest, 0);
+    return () => clearTimeout(t);
+  }, [loadHarvest, lookupRetries]);
+
+  // The variety list differs between the two modes, so a picked variety may not exist in the other.
+  useEffect(() => {
+    if (sessionRef.current.variety || sessionRef.current.stemLength) update({ variety: '', stemLength: '' });
+  }, [stemMode, update]);
 
   useEffect(() => {
     if (!needsHarvestLookups || !session.greenhouse) return;
     let live = true;
     scanApi
-      .recentVarieties(session.greenhouse)
+      .recentVarieties(session.greenhouse, stemMode)
       .then((recent) => live && setHarvest((h) => ({ ...h, recent: recent ?? [] })))
       .catch(() => live && setHarvest((h) => ({ ...h, recent: [] })));
     return () => {
       live = false;
     };
-  }, [needsHarvestLookups, session.greenhouse]);
+  }, [needsHarvestLookups, session.greenhouse, stemMode]);
 
   const greenhouseOptions: DropdownOption[] = harvest.greenhouses.map((g) => ({
     label: g.name,
@@ -209,6 +243,7 @@ export default function ScanScreen() {
           },
         },
       ],
+      { cancelable: true },
     );
   };
 
@@ -249,7 +284,6 @@ export default function ScanScreen() {
 
   if (!action) return null;
 
-  const last = history[0];
   const prompt = action.prompt(session);
   const blocked = action.needsFarm && !farm;
 
@@ -270,7 +304,6 @@ export default function ScanScreen() {
 
       {blocked ? (
         <Card>
-          <Notice tone="warn">Choose the farm before scanning.</Notice>
           <Button label="Choose process and farm" iconLeft="options-outline" onPress={() => router.push('/settings')} />
         </Card>
       ) : (
@@ -279,11 +312,6 @@ export default function ScanScreen() {
             <Card style={s.setup}>
               {req.includes('greenhouse') ? (
                 <>
-                  {harvest.error ? (
-                    <Pressable onPress={loadHarvest}>
-                      <Notice tone="danger">{`${harvest.error}. Tap to retry.`}</Notice>
-                    </Pressable>
-                  ) : null}
                   {harvest.loading && !harvest.greenhouses.length ? (
                     <FieldSkeleton />
                   ) : (
@@ -313,6 +341,17 @@ export default function ScanScreen() {
                   onChange={(variety) => setAndRefocus({ variety })}
                   disabled={req.includes('greenhouse') && !session.greenhouse}
                   emptyText={harvest.loading ? 'Loading…' : 'No varieties'}
+                />
+              ) : null}
+              {stemMode ? (
+                <Dropdown
+                  label="Stem length"
+                  placeholder={session.variety ? 'Choose the stem length' : 'Choose the variety first'}
+                  value={session.stemLength}
+                  options={harvest.stemLengths.map((l) => ({ label: l, value: l }))}
+                  onChange={(stemLength) => setAndRefocus({ stemLength })}
+                  disabled={!session.variety}
+                  emptyText={harvest.loading ? 'Loading…' : 'No stem lengths set up'}
                 />
               ) : null}
               {req.includes('harvester') ? (
@@ -526,7 +565,6 @@ export default function ScanScreen() {
             ) : null}
             </>
           )}
-          {last ? <ResultBanner entry={last} /> : null}
 
           {action.panel && session.plan ? (
             <LoadingPlanPanel
@@ -539,47 +577,10 @@ export default function ScanScreen() {
               dispatching={dispatching}
             />
           ) : null}
-
-          {history.length > 1 ? (
-            <>
-              <Text style={s.section}>Recent scans</Text>
-              <Card style={s.historyCard}>
-                {history.slice(1).map((h, i) => (
-                  <View key={h.id} style={[s.historyRow, i > 0 && s.historyDivider]}>
-                    <Ionicons name={TONE[h.tone].icon} size={20} color={TONE[h.tone].fg} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.historyTitle} numberOfLines={2}>
-                        {h.title}
-                      </Text>
-                      {h.detail ? (
-                        <Text style={s.historyDetail} numberOfLines={3}>
-                          {h.detail}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Text style={s.historyTime}>{formatTime(h.at)}</Text>
-                  </View>
-                ))}
-              </Card>
-            </>
-          ) : null}
         </>
       )}
+      <BlockerModal blocker={blocker} onClose={closeBlocker} />
     </Screen>
-  );
-}
-
-function ResultBanner({ entry }: { entry: HistoryEntry }) {
-  const t = TONE[entry.tone];
-  return (
-    <View style={[s.banner, { backgroundColor: t.bg, borderColor: t.fg }]} accessibilityLiveRegion="polite">
-      <Ionicons name={t.icon} size={36} color={t.fg} />
-      <View style={{ flex: 1 }}>
-        <Text style={[s.bannerTitle, { color: t.fg }]}>{entry.title}</Text>
-        {entry.detail ? <Text style={[s.bannerDetail, { color: t.fg }]}>{entry.detail}</Text> : null}
-        <Text style={[s.bannerTime, { color: t.fg }]}>{formatTime(entry.at)}</Text>
-      </View>
-    </View>
   );
 }
 
@@ -644,10 +645,6 @@ function FieldSkeleton() {
   );
 }
 
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
 const s = StyleSheet.create({
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
   chip: {
@@ -679,29 +676,4 @@ const s = StyleSheet.create({
   prompt: { fontFamily: fontFamily.semiBold, fontSize: fontSize.lg, color: colors.text, marginBottom: spacing.sm },
   readyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40, marginTop: spacing.xs },
   resumeText: { flex: 1, fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: '#92400E' },
-  banner: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    alignItems: 'flex-start',
-    padding: spacing.lg,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1.5,
-    marginTop: spacing.md,
-  },
-  bannerTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.xl, lineHeight: 28 },
-  bannerDetail: { fontFamily: fontFamily.medium, fontSize: fontSize.md, marginTop: 4, lineHeight: 21 },
-  bannerTime: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, marginTop: spacing.sm, opacity: 0.7 },
-  section: {
-    fontFamily: fontFamily.semiBold,
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  historyCard: { paddingVertical: spacing.sm },
-  historyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm },
-  historyDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  historyTitle: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
-  historyDetail: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
-  historyTime: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted },
 });

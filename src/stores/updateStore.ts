@@ -27,7 +27,7 @@ import { userMessage } from '@/src/services/user-message';
  *
  * Two channels:
  *  - OTA: a JS bundle for a patch inside the same runtime, served through
- *    `updates.url` (the Frappe proxy `upande_postharvest.mobile_api.ota.manifest`).
+ *    `updates.url` (the Frappe proxy `upande_sensors.api.ota.post_harvest_manifest` on sensor.upande.com).
  *    Checked at launch and on every return to the foreground (at most every
  *    five minutes) and applied without asking.
  *  - APK: a GitHub Releases check, once a day, for a build whose runtime

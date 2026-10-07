@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/src/components/Screen';
 import { Card } from '@/src/components/Card';
@@ -11,6 +11,7 @@ import { getInstallId } from '@/src/services/install-register';
 import { compareVersions } from '@/src/services/updates';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { userMessage } from '@/src/services/user-message';
+import { useScanStore } from '@/src/stores/scanStore';
 
 /**
  * The device register: every handheld the app is installed on, who signed in
@@ -48,6 +49,13 @@ function ago(ts: string | null | undefined, serverNow: string | null | undefined
 }
 
 export default function DevicesScreen() {
+  // System Managers only (the server refuses everyone else too): anyone else who
+  // lands here, e.g. from a deep link, goes back to Settings.
+  const canViewDevices = useScanStore((st) => st.canViewDevices);
+  return canViewDevices ? <DevicesRegister /> : <Redirect href="/settings" />;
+}
+
+function DevicesRegister() {
   const router = useRouter();
   const [data, setData] = useState<InstallsReply | null>(null);
   const [rows, setRows] = useState<InstallRow[]>([]);
@@ -112,7 +120,8 @@ export default function DevicesScreen() {
   // Reload from the top whenever a filter changes. `load` itself changes with
   // rows.length, so it is deliberately not a dependency here.
   useEffect(() => {
-    load('initial');
+    const t = setTimeout(() => load('initial'), 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, query]);
 

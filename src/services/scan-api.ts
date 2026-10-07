@@ -1,20 +1,19 @@
 import { apiClient, mapAxiosError } from './api';
-import { API_MODULE } from './api-module';
+import { endpoint } from './api-module';
 
 /**
- * Wrappers for the scan endpoints in upande_postharvest/mobile_api.
+ * Wrappers for the scan endpoints (Server Scripts routed by `endpoint`).
  *
  * Most endpoints answer HTTP 200 with `{success: false, error}` for domain
  * rejections ("already graded", "Order full!"). `receiving` instead raises
  * (`frappe.throw`), which surfaces here as an HttpError carrying the message.
  */
 
-const BASE = API_MODULE;
-
 /** POST a whitelisted method and return its `message`. Throws HttpError on transport/server errors. */
 export async function callMethod<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
   try {
-    const res = await apiClient().post(`/api/method/${BASE}.${method}`, args);
+    const { path, args: route } = endpoint(method);
+    const res = await apiClient().post(path, { ...args, ...route });
     return (res.data?.message ?? res.data) as T;
   } catch (err) {
     throw mapAxiosError(err);
@@ -24,7 +23,8 @@ export async function callMethod<T>(method: string, args: Record<string, unknown
 /** GET a whitelisted method (for methods the server only accepts over GET). */
 export async function getMethod<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   try {
-    const res = await apiClient().get(`/api/method/${BASE}.${method}`, { params });
+    const { path, args: route } = endpoint(method);
+    const res = await apiClient().get(path, { params: { ...params, ...route } });
     return (res.data?.message ?? res.data) as T;
   } catch (err) {
     throw mapAxiosError(err);
@@ -86,6 +86,8 @@ export interface Variety {
   name: string;
   item_name?: string | null;
   item_group?: string | null;
+  /** A stem-length template: harvested as its variant for the chosen length. */
+  has_variants?: 0 | 1;
   /** Most stems a bucket of this variety holds (Production Settings). */
   max_stems?: number;
 }
@@ -93,6 +95,8 @@ export interface Variety {
 export interface HarvestSetup extends ScanReply {
   greenhouses?: Greenhouse[];
   varieties?: Variety[];
+  /** Stem Length records to pick from, shortest first (harvesting by stem length). */
+  stem_lengths?: string[];
   max_stems?: number;
 }
 
@@ -191,6 +195,8 @@ export interface HarvestArgs {
   quantity: number;
   bay: string;
   bucket_id: string;
+  /** Harvesting by stem length, e.g. '63CM'. */
+  stem_length?: string;
 }
 
 export interface ReceivingReply {
@@ -242,8 +248,10 @@ export const scanApi = {
 
   productionSummary: (farm: string, date?: string) =>
     callMethod<ProductionSummary>('harvesting.get_production_summary', { farm, date }),
-  harvestSetup: (farm: string) => callMethod<HarvestSetup>('harvesting.get_harvest_setup', { farm }),
-  recentVarieties: (greenhouse: string) => callMethod<string[]>('harvesting.get_recent_varieties', { greenhouse }),
+  harvestSetup: (farm: string, byStemLength = false) =>
+    callMethod<HarvestSetup>('harvesting.get_harvest_setup', { farm, by_stem_length: byStemLength ? 1 : 0 }),
+  recentVarieties: (greenhouse: string, byStemLength = false) =>
+    callMethod<string[]>('harvesting.get_recent_varieties', { greenhouse, by_stem_length: byStemLength ? 1 : 0 }),
   harvest: (args: HarvestArgs) => callMethod<ScanReply>('harvesting.harvest', { ...args }),
   fieldRejects: (farm: string, greenhouse: string, item_code: string, stems: number, reason: string) =>
     callMethod<ScanReply>('harvesting.field_rejects', { farm, greenhouse, item_code, stems, reason }),

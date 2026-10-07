@@ -4,6 +4,7 @@ import { scanApi, type Employee, type LoadingPlan, type OplInfo, type PlanReply,
 import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseTruck } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
 import { humanText, userMessage } from '@/src/services/user-message';
+import { useScanStore } from '@/src/stores/scanStore';
 
 /**
  * Every scan the packhouse does, mirroring the Scan form's
@@ -36,6 +37,8 @@ export interface ScanSession {
   /** Harvesting: where, what and who stay set; stems are entered per bucket. */
   greenhouse: string;
   variety: string;
+  /** Harvesting by stem length (Settings): the length of the next buckets, e.g. '63CM'. */
+  stemLength: string;
   harvester: Employee | null;
   bed: string;
   stems: string;
@@ -53,6 +56,7 @@ export const emptySession = (farm: string): ScanSession => ({
   removeFromPlan: false,
   greenhouse: '',
   variety: '',
+  stemLength: '',
   harvester: null,
   bed: '',
   stems: '',
@@ -72,6 +76,7 @@ export type Requirement =
   | 'truckPick' // like 'plan', or picked from the open Loading Plans
   | 'greenhouse' // Harvesting: picked from the farm's greenhouses
   | 'variety' // Harvesting: picked, the greenhouse's recent varieties first
+  | 'stemLength' // Harvesting: picked, only when harvesting by stem length (Settings)
   | 'harvester' // Harvesting: picked from the list
   | 'bed' // Harvesting: typed, optional
   | 'stems'; // Harvesting: typed per bucket
@@ -172,10 +177,16 @@ export function stemCount(s: ScanSession): number {
   return Number.isInteger(n) && n > 0 ? n : 0;
 }
 
+/** Harvesting asks for the stem length (scanner setting). */
+export function harvestByStemLength(): boolean {
+  return useScanStore.getState().harvestByStemLength;
+}
+
 /** What Harvesting still needs before a bucket can be scanned, or null. */
 export function harvestMissing(s: ScanSession): string | null {
   if (!s.greenhouse) return 'Select the greenhouse';
   if (!s.variety) return 'Select the variety';
+  if (harvestByStemLength() && !s.stemLength) return 'Select the stem length';
   if (!s.harvester) return 'Select the harvester';
   if (!stemCount(s)) return 'Enter the number of stems';
   return null;
@@ -294,10 +305,11 @@ export const ACTIONS: ActionDef[] = [
     group: PRODUCTION,
     icon: 'cut-outline',
     needsFarm: true,
-    requirements: ['greenhouse', 'variety', 'harvester', 'bed', 'stems'],
+    requirements: ['greenhouse', 'variety', 'stemLength', 'harvester', 'bed', 'stems'],
     prompt: (s) => {
       const missing = harvestMissing(s);
-      return missing ? `${missing} first` : `Scan the bucket QR · ${stemCount(s)} stems`;
+      if (missing) return `${missing} first`;
+      return `Scan the bucket QR · ${stemCount(s)} stems${harvestByStemLength() ? ` · ${s.stemLength}` : ''}`;
     },
     handle: (code, s, update) =>
       run(async () => {
@@ -313,6 +325,7 @@ export const ACTIONS: ActionDef[] = [
           quantity: stemCount(s),
           bay: s.bed.trim(),
           bucket_id: bucketId,
+          ...(harvestByStemLength() ? { stem_length: s.stemLength } : {}),
         });
         if (r.success) {
           // The next bucket needs its own count.
@@ -320,7 +333,9 @@ export const ACTIONS: ActionDef[] = [
           return ok(
             `${r.bucket_id} harvested`,
             [
-              `${r.variety} · ${r.qty} ${String(r.uom || 'stems').toLowerCase()}`,
+              // A plain item keeps its name, so show the length; a variant's name already has it.
+              `${r.variety}${r.stem_length && !String(r.variety).endsWith(r.stem_length) ? ` ${r.stem_length}` : ''}` +
+                ` · ${r.qty} ${String(r.uom || 'stems').toLowerCase()}`,
               `${r.greenhouse}${r.bay ? ` · bed ${r.bay}` : ''}`,
               r.harvester_name || r.harvester,
             ]
@@ -332,6 +347,8 @@ export const ACTIONS: ActionDef[] = [
           ['in use', 'warning', `${bucketId} is already in use`],
           ['cannot hold more', 'warning', 'Too many stems for one bucket'],
           ['not a greenhouse', 'error'],
+          ['has no', 'error'],
+          ['stem length', 'warning'],
           ['not found', 'error'],
         ]);
       }),
@@ -382,11 +399,14 @@ export const ACTIONS: ActionDef[] = [
     'shield-outline',
     PRODUCTION,
   ),
+
+  // Packhouse: receiving out → ungraded discard → grading → packing
+  receivingAction('receiving-out', 'Receiving Out', 'Receiving Out', 'Cold store → packhouse store', 'exit-outline', PACKHOUSE),
   {
     key: 'ungraded-discard',
     label: 'Ungraded Discard',
     description: 'Discard a received bucket before grading',
-    group: PRODUCTION,
+    group: PACKHOUSE,
     icon: 'trash-outline',
     needsFarm: true,
     requirements: [],
@@ -404,9 +424,6 @@ export const ACTIONS: ActionDef[] = [
         ]);
       }),
   },
-
-  // Packhouse: receiving out → grading → packing
-  receivingAction('receiving-out', 'Receiving Out', 'Receiving Out', 'Cold store → packhouse store', 'exit-outline', PACKHOUSE),
   {
     key: 'grading',
     label: 'Grading',

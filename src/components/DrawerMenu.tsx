@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Animated,
   Image,
@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -28,7 +28,6 @@ export function DrawerMenu() {
   const pathname = usePathname();
   const visible = useUIStore((s) => s.drawerOpen);
   const onClose = useUIStore((s) => s.closeDrawer);
-  const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const fullName = useAuthStore((s) => s.fullName);
   const email = useAuthStore((s) => s.email);
@@ -37,7 +36,7 @@ export function DrawerMenu() {
   const processes = useScanStore((s) => s.processes);
 
   const drawerWidth = Math.min(Math.max(screenWidth * 0.82, 260), 340);
-  const slide = useRef(new Animated.Value(-drawerWidth)).current;
+  const [slide] = useState(() => new Animated.Value(-drawerWidth));
 
   useEffect(() => {
     if (visible) {
@@ -104,101 +103,106 @@ export function DrawerMenu() {
       navigationBarTranslucent
       hardwareAccelerated
     >
-      <View style={s.overlay}>
+      {/* A Modal is its own window on Android, so the app's root safe-area insets
+          don't reach it: measure them again in here, or the logo and title draw
+          under the status bar. */}
+      <SafeAreaProvider style={s.overlay}>
         <Pressable style={s.backdrop} onPress={() => closeWithAnim()} accessibilityLabel="Close menu" />
         <Animated.View style={[s.drawer, { width: drawerWidth, transform: [{ translateX: slide }] }]}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={[s.scroll, { paddingTop: insets.top + spacing.lg }]}
-            bounces={false}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={s.brand}>
-              <Image
-                source={require('@/assets/images/upande_logo.png')}
-                style={s.logo}
-                resizeMode="contain"
-                accessibilityLabel="Upande"
-              />
-              <Text style={s.brandName} numberOfLines={2}>
-                {appTitle(processes)}
-              </Text>
-            </View>
-
-            <View style={s.header}>
-              <View style={s.avatar}>
-                <Text style={s.avatarText}>{initials}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.name} numberOfLines={1}>
-                  {fullName || email || 'User'}
-                </Text>
-                {email ? (
-                  <Text style={s.email} numberOfLines={1}>
-                    {email}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={s.station}
-              onPress={() => go('/settings', pathname === '/settings')}
-              activeOpacity={0.7}
-              accessibilityLabel="Change process and farm"
+          <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom', 'left']}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={s.scroll}
+              bounces={false}
+              showsVerticalScrollIndicator={false}
             >
-              <Ionicons name="location-outline" size={18} color={colors.text} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.stationFarm}>{farm || 'No farm chosen'}</Text>
-                <Text style={s.stationSub} numberOfLines={1}>
-                  {processes.length ? processLabel(processes) : 'All processes'}
+              <View style={s.brand}>
+                <Image
+                  source={require('@/assets/images/upande_logo.png')}
+                  style={s.logo}
+                  resizeMode="contain"
+                  accessibilityLabel="Upande"
+                />
+                <Text style={s.brandName} numberOfLines={2}>
+                  {appTitle(processes)}
                 </Text>
               </View>
-              <Text style={s.change}>Change</Text>
-            </TouchableOpacity>
 
-            <NavRow icon="home-outline" label="Home" active={pathname === '/'} onPress={goHome} />
-
-            {groups.map((g) => (
-              <View key={g.key}>
-                <TouchableOpacity
-                  onPress={() => go({ pathname: '/process/[key]', params: { key: g.key } }, pathname === `/process/${g.key}`)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${g.label} overview`}
-                  style={s.groupRow}
-                >
-                  <Text style={[s.group, pathname === `/process/${g.key}` && s.groupOn]}>{g.label}</Text>
-                  <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-                </TouchableOpacity>
-                {actions
-                  .filter((a) => a.group === g.key)
-                  .map((a) => (
-                    <NavRow
-                      key={a.key}
-                      icon={a.icon}
-                      label={a.label}
-                      active={pathname === `/scan/${a.key}`}
-                      onPress={() => openAction(a)}
-                    />
-                  ))}
+              <View style={s.header}>
+                <View style={s.avatar}>
+                  <Text style={s.avatarText}>{initials}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.name} numberOfLines={1}>
+                    {fullName || email || 'User'}
+                  </Text>
+                  {email ? (
+                    <Text style={s.email} numberOfLines={1}>
+                      {email}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
-            ))}
-          </ScrollView>
 
-          {/* Pinned to the bottom-left, whatever the list's length. */}
-          <View style={[s.footer, { paddingBottom: insets.bottom + spacing.sm }]}>
-            <NavRow
-              icon="settings-outline"
-              label="Settings"
-              active={pathname === '/settings'}
-              onPress={() => go('/settings', pathname === '/settings')}
-            />
-            <NavRow icon="log-out-outline" label="Sign out" danger onPress={onSignOut} />
-            <Text style={s.version}>{appTitle(processes)} v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
-          </View>
+              <TouchableOpacity
+                style={s.station}
+                onPress={() => go('/settings', pathname === '/settings')}
+                activeOpacity={0.7}
+                accessibilityLabel="Change process and farm"
+              >
+                <Ionicons name="location-outline" size={18} color={colors.text} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.stationFarm}>{farm || 'No farm chosen'}</Text>
+                  <Text style={s.stationSub} numberOfLines={1}>
+                    {processes.length ? processLabel(processes) : 'All processes'}
+                  </Text>
+                </View>
+                <Text style={s.change}>Change</Text>
+              </TouchableOpacity>
+
+              <NavRow icon="home-outline" label="Home" active={pathname === '/'} onPress={goHome} />
+
+              {groups.map((g) => (
+                <View key={g.key}>
+                  <TouchableOpacity
+                    onPress={() => go({ pathname: '/process/[key]', params: { key: g.key } }, pathname === `/process/${g.key}`)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${g.label} overview`}
+                    style={s.groupRow}
+                  >
+                    <Text style={[s.group, pathname === `/process/${g.key}` && s.groupOn]}>{g.label}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                  </TouchableOpacity>
+                  {actions
+                    .filter((a) => a.group === g.key)
+                    .map((a) => (
+                      <NavRow
+                        key={a.key}
+                        icon={a.icon}
+                        label={a.label}
+                        active={pathname === `/scan/${a.key}`}
+                        onPress={() => openAction(a)}
+                      />
+                    ))}
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* Pinned to the bottom-left, whatever the list's length. */}
+            <View style={s.footer}>
+              <NavRow
+                icon="settings-outline"
+                label="Settings"
+                active={pathname === '/settings'}
+                onPress={() => go('/settings', pathname === '/settings')}
+              />
+              <NavRow icon="log-out-outline" label="Sign out" danger onPress={onSignOut} />
+              <Text style={s.version}>{appTitle(processes)} v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
+            </View>
+          </SafeAreaView>
         </Animated.View>
-      </View>
+      </SafeAreaProvider>
     </Modal>
   );
 }
@@ -248,7 +252,7 @@ const s = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 12,
   },
-  scroll: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  scroll: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md },
   brand: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -316,6 +320,7 @@ const s = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
     paddingHorizontal: spacing.lg,
     backgroundColor: colors.surface,
   },
