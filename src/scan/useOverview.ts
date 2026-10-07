@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { HttpError } from '@/src/services/api';
 import { scanApi, type Overview } from '@/src/services/scan-api';
+import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
 import { userMessage } from '@/src/services/user-message';
 
 /** A reason the figures could not be loaded that an operator (or IT) can act on. */
@@ -26,11 +27,13 @@ export function useOverview(farm: string) {
   const [error, setError] = useState<string | null>(null);
   const [at, setAt] = useState<Date | null>(null);
 
+  // Delivery's figures follow the Delivery page's date filter.
+  const offset = useDeliveryDate((st) => st.offset);
   const reload = useCallback(async () => {
     if (!farm) return;
     setLoading(true);
     try {
-      const r = await scanApi.overview(farm);
+      const r = await scanApi.overview(farm, offset ? deliveryDate(offset) : undefined);
       if (!r || !r.success) throw new Error(r?.error || 'Could not load today’s figures.');
       setOverview(r);
       setError(null);
@@ -40,7 +43,7 @@ export function useOverview(farm: string) {
     } finally {
       setLoading(false);
     }
-  }, [farm]);
+  }, [farm, offset]);
 
   // A new station: drop the old farm's figures.
   const [shownFarm, setShownFarm] = useState(farm);

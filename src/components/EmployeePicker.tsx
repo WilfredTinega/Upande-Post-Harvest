@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -11,10 +10,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { scanApi, type Employee } from '@/src/services/scan-api';
+import { scanApi, type Employee, type EmployeeRole } from '@/src/services/scan-api';
+import { cachedList, employeesKey, fetchList } from '@/src/services/list-cache';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
 import { userMessage } from '@/src/services/user-message';
+
+/** Pause after typing before searching. */
+const SEARCH_DELAY_MS = 150;
 
 interface Props {
   label: string;
@@ -22,10 +25,24 @@ interface Props {
   onChange: (employee: Employee | null) => void;
   placeholder?: string;
   optional?: boolean;
+  /** List this farm's recent people in `role` first. */
+  recentAtFarm?: string;
+  role?: EmployeeRole;
+  /** Keep `label` for the picker's title only, e.g. when the field sits in a row. */
+  inline?: boolean;
 }
 
 /** Employee field backed by a server-side search (there are too many to list up front). */
-export function EmployeePicker({ label, value, onChange, placeholder = 'Select employee', optional }: Props) {
+export function EmployeePicker({
+  label,
+  value,
+  onChange,
+  placeholder = 'Select employee',
+  optional,
+  recentAtFarm,
+  role = 'harvester',
+  inline = false,
+}: Props) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -37,22 +54,30 @@ export function EmployeePicker({ label, value, onChange, placeholder = 'Select e
   useEffect(() => {
     if (!open) return;
     const mine = ++seq.current;
-    const t = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const rows = await scanApi.searchEmployees(query);
-        if (mine === seq.current) {
-          setResults(rows ?? []);
-          setError(null);
+    const key: string | null = employeesKey(recentAtFarm, role, query);
+    const held = key ? cachedList<Employee[]>(key) : undefined;
+    // A held list shows at once and refreshes quietly; the skeleton is only for a first load.
+    const t = setTimeout(
+      async () => {
+        if (held) setResults(held);
+        else setLoading(true);
+        try {
+          const load = () => scanApi.searchEmployees(query, recentAtFarm, role);
+          const rows = (await (key ? fetchList<Employee[]>(key, load) : load())) ?? [];
+          if (mine === seq.current) {
+            setResults(rows);
+            setError(null);
+          }
+        } catch (err) {
+          if (mine === seq.current && !held) setError(userMessage(err, 'Search failed'));
+        } finally {
+          if (mine === seq.current) setLoading(false);
         }
-      } catch (err) {
-        if (mine === seq.current) setError(userMessage(err, 'Search failed'));
-      } finally {
-        if (mine === seq.current) setLoading(false);
-      }
-    }, 300);
+      },
+      query && !held ? SEARCH_DELAY_MS : 0,
+    );
     return () => clearTimeout(t);
-  }, [open, query]);
+  }, [open, query, recentAtFarm, role]);
 
   const pick = (e: Employee | null) => {
     onChange(e);
@@ -62,14 +87,23 @@ export function EmployeePicker({ label, value, onChange, placeholder = 'Select e
 
   return (
     <View>
-      <Text style={s.label}>
-        {label}
-        {optional ? <Text style={s.optional}>  optional</Text> : null}
-      </Text>
+      {inline ? null : (
+        <Text style={s.label}>
+          {label}
+          {optional ? <Text style={s.optional}>  optional</Text> : null}
+        </Text>
+      )}
       <Pressable onPress={() => setOpen(true)} style={s.field}>
         <Ionicons name="person-outline" size={18} color={colors.textMuted} />
         <Text style={[s.value, !value && s.placeholder]} numberOfLines={1}>
-          {value ? `${value.employee_name} · ${value.name}` : placeholder}
+          {value ? (
+            <>
+              {value.employee_name}
+              <Text style={s.optionNumber}>  {value.employee_number || value.name}</Text>
+            </>
+          ) : (
+            placeholder
+          )}
         </Text>
         {value ? (
           <Pressable onPress={() => pick(null)} hitSlop={10}>
@@ -94,19 +128,21 @@ export function EmployeePicker({ label, value, onChange, placeholder = 'Select e
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search name or ID"
+                placeholder="Search name or payroll number"
                 placeholderTextColor={colors.textMuted}
                 autoFocus
                 autoCorrect={false}
                 style={s.search}
               />
-              {loading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
+              
             </View>
             {error ? <Text style={s.error}>{error}</Text> : null}
             <FlatList
-              data={results}
+              // Each load, a new search too, shows the skeleton in place of the old rows.
+              data={loading ? [] : results}
               keyExtractor={(e) => e.name}
               keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={s.separator} />}
               ListEmptyComponent={
                 loading ? (
@@ -117,11 +153,15 @@ export function EmployeePicker({ label, value, onChange, placeholder = 'Select e
               }
               renderItem={({ item }) => (
                 <Pressable onPress={() => pick(item)} style={s.option}>
-                  <Text style={s.optionLabel}>{item.employee_name}</Text>
-                  <Text style={s.optionSub}>
-                    {item.name}
-                    {item.designation ? ` · ${item.designation}` : ''}
+                  <Text style={s.optionLabel} numberOfLines={1}>
+                    {item.employee_name}
+                    <Text style={s.optionNumber}>  {item.employee_number || item.name}</Text>
                   </Text>
+                  {item.recent || item.designation ? (
+                    <Text style={s.optionSub}>
+                      {[item.recent ? 'Recent' : null, item.designation].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
                 </Pressable>
               )}
             />
@@ -139,7 +179,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    minHeight: 48,
+    minHeight: 46,
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.sm,
     borderWidth: 1,
@@ -154,8 +194,8 @@ const s = StyleSheet.create({
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
     padding: spacing.lg,
-    maxHeight: '80%',
-    minHeight: '60%',
+    // Fixed, so the sheet doesn't jump between loading and showing results.
+    height: '75%',
   },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   sheetTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.text },
@@ -179,8 +219,9 @@ const s = StyleSheet.create({
   },
   search: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text, padding: 0 },
   error: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.error, marginBottom: spacing.sm },
-  option: { paddingVertical: spacing.md },
+  option: { minHeight: 56, justifyContent: 'center', paddingVertical: spacing.md },
   optionLabel: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
+  optionNumber: { fontFamily: fontFamily.bold, color: colors.text },
   optionSub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   empty: {

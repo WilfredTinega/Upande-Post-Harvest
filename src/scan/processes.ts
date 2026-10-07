@@ -5,7 +5,7 @@ import type { ComponentProps } from 'react';
  * The three post-harvest processes. Each scanner is dedicated to one or more
  * of them; home and the sidebar only show the enabled processes' actions.
  */
-export type ProcessKey = 'production' | 'packhouse' | 'dispatch' | 'shop' | 'quality';
+export type ProcessKey = 'production' | 'packhouse' | 'dispatch' | 'delivery' | 'shop' | 'quality';
 
 export interface ProcessDef {
   key: ProcessKey;
@@ -30,8 +30,14 @@ export const PROCESSES: ProcessDef[] = [
   {
     key: 'dispatch',
     label: 'Dispatch',
-    description: 'Staging → loading → dispatch',
+    description: 'Load trucks and send them',
     icon: 'bus-outline',
+  },
+  {
+    key: 'delivery',
+    label: 'Delivery',
+    description: 'Boxes per delivery point and customer',
+    icon: 'navigate-outline',
   },
   {
     key: 'shop',

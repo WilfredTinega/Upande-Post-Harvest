@@ -407,7 +407,7 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.md,
     height: 40,
   },
-  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.text, padding: 0 },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text, padding: 0 },
   windows: { flexDirection: 'row', gap: spacing.sm, marginVertical: spacing.md },
   windowChip: {
     paddingHorizontal: spacing.md,
@@ -430,5 +430,5 @@ const s = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.lg,
   },
-  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.error, marginBottom: spacing.sm },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.error, marginBottom: spacing.sm },
 });

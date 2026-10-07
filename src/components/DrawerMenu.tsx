@@ -60,13 +60,22 @@ export function DrawerMenu() {
       return;
     }
     closeWithAnim(() => {
-      // Scan and process screens replace each other so Back always leads home.
+      // Scan and process screens replace each other so Back always leads to the opening page.
       if (pathname.startsWith('/scan/') || pathname.startsWith('/process/')) router.replace(href);
       else router.push(href);
     });
   };
 
+  // The app opens on the first process's page; its menu entry leads back there.
   const goHome = () => closeWithAnim(() => pathname !== '/' && router.dismissTo('/'));
+  const openProcess = (key: string, first: boolean) => {
+    if (first) {
+      if (pathname === '/') closeWithAnim();
+      else goHome();
+      return;
+    }
+    go({ pathname: '/process/[key]', params: { key } }, pathname === `/process/${key}`);
+  };
 
   const openAction = (a: ActionDef) => {
     if (a.needsFarm && !farm) {
@@ -160,18 +169,20 @@ export function DrawerMenu() {
                 <Text style={s.change}>Change</Text>
               </TouchableOpacity>
 
-              <NavRow icon="home-outline" label="Home" active={pathname === '/'} onPress={goHome} />
-
-              {groups.map((g) => (
+              {groups.map((g, gi) => (
                 <View key={g.key}>
                   <TouchableOpacity
-                    onPress={() => go({ pathname: '/process/[key]', params: { key: g.key } }, pathname === `/process/${g.key}`)}
+                    onPress={() => openProcess(g.key, gi === 0)}
                     activeOpacity={0.7}
                     accessibilityRole="button"
                     accessibilityLabel={`${g.label} overview`}
                     style={s.groupRow}
                   >
-                    <Text style={[s.group, pathname === `/process/${g.key}` && s.groupOn]}>{g.label}</Text>
+                    <Text
+                      style={[s.group, (pathname === `/process/${g.key}` || (gi === 0 && pathname === '/')) && s.groupOn]}
+                    >
+                      {g.label}
+                    </Text>
                     <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
                   </TouchableOpacity>
                   {actions

@@ -6,6 +6,7 @@ import { useFonts, DMSans_400Regular, DMSans_500Medium } from '@expo-google-font
 import { Poppins_600SemiBold, Poppins_700Bold } from '@expo-google-fonts/poppins';
 import * as SplashScreen from 'expo-splash-screen';
 import { ToastProvider } from '@/src/components/Toast';
+import { AppDialogHost } from '@/src/components/AppDialog';
 import { OfflineBanner } from '@/src/components/OfflineBanner';
 import { DrawerMenu } from '@/src/components/DrawerMenu';
 import { OtaToast } from '@/src/components/OtaToast';
@@ -86,6 +87,7 @@ export default function RootLayout() {
         <OtaToast />
         {/* Rendered at the root so its Modal sits above every screen. */}
         {hasSession && !biometricLocked ? <DrawerMenu /> : null}
+        <AppDialogHost />
       </ToastProvider>
     </SafeAreaProvider>
   );
