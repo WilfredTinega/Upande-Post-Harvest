@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { HttpError } from '@/src/services/api';
 import { scanApi, type Overview } from '@/src/services/scan-api';
@@ -43,10 +43,12 @@ export function useOverview(farm: string) {
   }, [farm]);
 
   // A new station: drop the old farm's figures.
-  useEffect(() => {
+  const [shownFarm, setShownFarm] = useState(farm);
+  if (shownFarm !== farm) {
+    setShownFarm(farm);
     setOverview(null);
     setError(null);
-  }, [farm]);
+  }
 
   useFocusEffect(
     useCallback(() => {

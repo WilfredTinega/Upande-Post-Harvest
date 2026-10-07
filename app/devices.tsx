@@ -120,7 +120,8 @@ function DevicesRegister() {
   // Reload from the top whenever a filter changes. `load` itself changes with
   // rows.length, so it is deliberately not a dependency here.
   useEffect(() => {
-    load('initial');
+    const t = setTimeout(() => load('initial'), 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, query]);
 

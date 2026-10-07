@@ -54,8 +54,12 @@ export default function HomeScreen() {
 
   // Back to the first page when the chosen processes change.
   const shownKey = shown.map((p) => p.key).join(',');
-  useEffect(() => {
+  const [pageKey, setPageKey] = useState(shownKey);
+  if (pageKey !== shownKey) {
+    setPageKey(shownKey);
     setPage(0);
+  }
+  useEffect(() => {
     pager.current?.scrollToOffset({ offset: 0, animated: false });
   }, [shownKey]);
 

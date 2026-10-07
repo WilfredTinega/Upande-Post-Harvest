@@ -15,13 +15,18 @@ export function InstanceLogo() {
   const instanceUrl = useAuthStore((s) => s.instanceUrl);
   const [cookie, setCookie] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  // A new logo gets a fresh try.
+  const [logoKey, setLogoKey] = useState(`${logo}|${instanceUrl}`);
+  if (logoKey !== `${logo}|${instanceUrl}`) {
+    setLogoKey(`${logo}|${instanceUrl}`);
+    setFailed(false);
+  }
 
   useEffect(() => {
     storage
       .get(StorageKeys.cookie)
       .then(setCookie)
       .catch(() => setCookie(null));
-    setFailed(false);
   }, [logo, instanceUrl]);
 
   if (!logo || !instanceUrl || failed) return null;

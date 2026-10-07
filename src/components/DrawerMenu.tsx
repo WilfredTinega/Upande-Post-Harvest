@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Animated,
   Image,
@@ -36,7 +36,7 @@ export function DrawerMenu() {
   const processes = useScanStore((s) => s.processes);
 
   const drawerWidth = Math.min(Math.max(screenWidth * 0.82, 260), 340);
-  const slide = useRef(new Animated.Value(-drawerWidth)).current;
+  const [slide] = useState(() => new Animated.Value(-drawerWidth));
 
   useEffect(() => {
     if (visible) {

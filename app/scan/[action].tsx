@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,7 +59,9 @@ export default function ScanScreen() {
 
   const [session, setSession] = useState<ScanSession>(() => emptySession(farm));
   const sessionRef = useRef(session);
-  sessionRef.current = session;
+  useLayoutEffect(() => {
+    sessionRef.current = session;
+  });
 
   // A scan (or lookup) that didn't go through, shown in a dialog until the operator dismisses it.
   const [blocker, setBlocker] = useState<{
@@ -171,7 +173,10 @@ export default function ScanScreen() {
       });
   }, [needsHarvestLookups, farm, stemMode]);
 
-  useEffect(loadHarvest, [loadHarvest, lookupRetries]);
+  useEffect(() => {
+    const t = setTimeout(loadHarvest, 0);
+    return () => clearTimeout(t);
+  }, [loadHarvest, lookupRetries]);
 
   // The variety list differs between the two modes, so a picked variety may not exist in the other.
   useEffect(() => {

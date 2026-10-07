@@ -37,7 +37,7 @@ export default function SettingsScreen() {
   const logout = useAuthStore((s) => s.logout);
   const forgetDevice = useAuthStore((s) => s.forgetDevice);
   const { showSuccess, showError } = useToast();
-  const [moduleReady, setModuleReady] = useState(false);
+  const [moduleReady] = useState(() => Biometric.isModuleAvailable());
   const [hardwareReady, setHardwareReady] = useState(false);
   const loadSetup = useScanStore((st) => st.load);
   const setupLoaded = useScanStore((st) => st.loaded);
@@ -65,7 +65,6 @@ export default function SettingsScreen() {
   }, [setupLoaded, loadSetup]);
 
   useEffect(() => {
-    setModuleReady(Biometric.isModuleAvailable());
     Biometric.isAvailable().then(setHardwareReady);
   }, []);
 

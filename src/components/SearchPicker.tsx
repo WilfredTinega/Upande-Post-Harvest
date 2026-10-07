@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,13 +56,15 @@ export function SearchPicker<T>({
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useLayoutEffect(() => {
+    loadRef.current = load;
+  });
 
   useEffect(() => {
     if (!open) return;
     const mine = ++seq.current;
-    setLoading(true);
     const t = setTimeout(async () => {
+      setLoading(true);
       try {
         const rows = await loadRef.current(query);
         if (mine === seq.current) {
