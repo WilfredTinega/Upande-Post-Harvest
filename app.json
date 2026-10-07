@@ -94,7 +94,7 @@
     "runtimeVersion": "1.0",
     "updates": {
       "enabled": true,
-      "url": "https://tambuzi.upande.com/api/method/upande_postharvest.mobile_api.ota.manifest",
+      "url": "https://sensor.upande.com/api/method/upande_sensors.api.ota.post_harvest_manifest",
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },

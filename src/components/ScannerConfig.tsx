@@ -65,11 +65,12 @@ export function ScannerConfig() {
             <Pressable
               key={f}
               onPress={() => setFarm(f)}
+              hitSlop={{ top: 6, bottom: 6 }}
               style={({ pressed }) => [s.farm, on && s.processOn, pressed && s.pressed]}
               accessibilityRole="radio"
               accessibilityState={{ selected: on }}
             >
-              {on ? <Ionicons name="checkmark" size={18} color={colors.textOnPrimary} /> : null}
+              {on ? <Ionicons name="checkmark" size={16} color={colors.textOnPrimary} /> : null}
               <Text style={[s.farmText, on && s.onText]}>{f}</Text>
             </Pressable>
           );
@@ -114,8 +115,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
     borderRadius: borderRadius.full,
     borderWidth: 1,
     borderColor: colors.border,

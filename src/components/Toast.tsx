@@ -6,7 +6,9 @@ import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme
 import { audio } from '@/src/audio';
 import { humanText } from '@/src/services/user-message';
 
-type ToastTone = 'success' | 'error' | 'info';
+export type ToastTone = 'success' | 'error' | 'info';
+
+const DEFAULT_DURATION_MS = 2600;
 
 interface ToastState {
   visible: boolean;
@@ -18,6 +20,8 @@ interface ToastContextValue {
   showSuccess: (msg: string) => void;
   showError: (msg: string) => void;
   showInfo: (msg: string) => void;
+  /** Show a toast without a sound (the caller already gave feedback), for `durationMs`. */
+  notify: (msg: string, tone: ToastTone, durationMs?: number) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -28,7 +32,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const show = useCallback(
-    (message: string, tone: ToastTone) => {
+    (message: string, tone: ToastTone, durationMs: number = DEFAULT_DURATION_MS) => {
       setState({ visible: true, message, tone });
       if (timer.current) clearTimeout(timer.current);
       Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: true }).start();
@@ -36,7 +40,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
           setState((p) => ({ ...p, visible: false }));
         });
-      }, 2600);
+      }, durationMs);
     },
     [anim],
   );
@@ -45,6 +49,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     showSuccess: (m: string) => { audio.submit(); show(m, 'success'); },
     showError: (m: string) => { audio.error(); show(humanText(m) ?? 'Something went wrong. Try again.', 'error'); },
     showInfo: (m: string) => show(m, 'info'),
+    notify: (m: string, tone: ToastTone, durationMs?: number) => show(m, tone, durationMs),
   };
 
   const iconName: React.ComponentProps<typeof Ionicons>['name'] =

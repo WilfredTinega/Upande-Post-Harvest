@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -71,6 +72,8 @@ export function Dropdown({
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={s.overlay}>
+          {/* Tapping outside the sheet closes it. A sibling, not a wrapper, so the list still scrolls. */}
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close" />
           <View style={[s.sheet, { paddingBottom: insets.bottom }]}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>{label || 'Select'}</Text>

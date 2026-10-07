@@ -17,7 +17,7 @@
  * manifest response without an `expo-protocol-version` header ("Legacy
  * manifests are no longer supported", `UpdateFactory.kt`), and a static host
  * cannot set one. So `updates.url` points at the Frappe site
- * (`upande_postharvest.mobile_api.ota.manifest`), which reads the `expo-runtime-version`
+ * (`upande_sensors.api.ota.post_harvest_manifest` on sensor.upande.com), which reads the `expo-runtime-version`
  * and `expo-platform` headers the client already sends, fetches
  * `<otaBaseUrl>/<platform>/<runtime>/manifest.json` from Pages, and returns it
  * with the header added. Asset downloads need no special headers, so they go to
