@@ -1,13 +1,13 @@
 {
-  "id": "43c83360-658a-49ab-a013-221027b1b259",
-  "createdAt": "2026-10-08T06:30:48.604Z",
+  "id": "5dab2ce1-27f8-4c5a-ad09-9853c7f5d146",
+  "createdAt": "2026-10-08T19:35:40.002Z",
   "runtimeVersion": "1.0",
   "launchAsset": {
-    "hash": "qCYUQa7Vr5TXsqO4NGNDyOCjcveI4Cl7Ry5xNOSYbus",
-    "key": "entry-004ac4edcd3e2344c68d5adcbbfe4637",
+    "hash": "n7-1YmOV3_tXq9-ePOy7ehBA3hTJenjsjBoY2hcnRP8",
+    "key": "entry-e809eb15cda521e71f0ae9efdcbdf669",
     "contentType": "application/javascript",
     "fileExtension": ".hbc",
-    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.0/_expo/static/js/android/entry-004ac4edcd3e2344c68d5adcbbfe4637.hbc"
+    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.0/_expo/static/js/android/entry-e809eb15cda521e71f0ae9efdcbdf669.hbc"
   },
   "assets": [
     {
@@ -616,9 +616,9 @@
   "metadata": {},
   "extra": {
     "expoClient": {
-      "name": "Post Harvest",
+      "name": "Upande Post Harvest",
       "slug": "post-harvest",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "orientation": "portrait",
       "icon": "./assets/images/icon.png",
       "scheme": "postharvest",
@@ -645,7 +645,7 @@
           "monochromeImage": "./assets/images/android-icon-monochrome.png"
         },
         "predictiveBackGestureEnabled": false,
-        "softwareKeyboardLayoutMode": "pan",
+        "softwareKeyboardLayoutMode": "resize",
         "permissions": [
           "android.permission.CAMERA",
           "android.permission.USE_BIOMETRIC",
@@ -659,7 +659,7 @@
         "blockedPermissions": [
           "android.permission.RECORD_AUDIO"
         ],
-        "versionCode": 5001
+        "versionCode": 5002
       },
       "plugins": [
         "./plugins/withReleaseSigning",
@@ -677,7 +677,7 @@
         [
           "expo-camera",
           {
-            "cameraPermission": "Allow Post Harvest to scan QR codes.",
+            "cameraPermission": "Allow Upande Post Harvest to scan QR codes.",
             "recordAudioAndroid": false
           }
         ],
@@ -691,7 +691,7 @@
         [
           "expo-local-authentication",
           {
-            "faceIDPermission": "Allow Post Harvest to unlock with Face ID."
+            "faceIDPermission": "Allow Upande Post Harvest to unlock with Face ID."
           }
         ],
         [
@@ -729,7 +729,7 @@
       },
       "sdkVersion": "57.0.0"
     },
-    "appVersion": "1.0.1",
-    "publishedAt": "2026-10-08T06:30:48.631Z"
+    "appVersion": "1.0.2",
+    "publishedAt": "2026-10-08T19:35:40.027Z"
   }
 }
