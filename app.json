@@ -2,7 +2,7 @@
   "expo": {
     "name": "Post Harvest",
     "slug": "post-harvest",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "postharvest",
@@ -40,7 +40,7 @@
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 5000
+      "versionCode": 5001
     },
     "plugins": [
       "./plugins/withReleaseSigning",
