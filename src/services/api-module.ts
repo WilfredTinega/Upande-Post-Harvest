@@ -1,4 +1,4 @@
-/** The server app module the OTA manifest and device endpoints live under. */
+/** The server app module for any endpoint not hosted by a site Server Script. */
 export const API_MODULE = 'upande_postharvest.mobile_api';
 
 /**
@@ -27,6 +27,7 @@ const SCRIPT_FOR: Record<string, string> = {
   delivery_form: 'mobile_delivery',
   setup: 'mobile_link_search',
   auth: 'mobile_link_search',
+  devices: 'mobile_link_search',
 };
 
 /** `/api/method/...` path and the routing arg for `module.function`. */
