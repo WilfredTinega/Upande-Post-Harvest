@@ -20,6 +20,8 @@ export default function LoginScreen() {
   const { showError } = useToast();
 
   const [instanceUrl, setInstanceUrl] = useState('');
+  // The full address that passed the server check; sign-in uses it as is.
+  const [verifiedUrl, setVerifiedUrl] = useState<string | null>(null);
   // First install has no server saved: ask for it, then for the credentials.
   const [step, setStep] = useState<'loading' | 'server' | 'credentials'>('loading');
   const [savingServer, setSavingServer] = useState(false);
@@ -48,7 +50,10 @@ export default function LoginScreen() {
         storage.get(StorageKeys.passwordBackup),
         storage.get(StorageKeys.biometricEnabled),
       ]);
-      if (savedUrl) setInstanceUrl(bareAddress(savedUrl));
+      if (savedUrl) {
+        setInstanceUrl(bareAddress(savedUrl));
+        setVerifiedUrl(savedUrl);
+      }
       setStep(savedUrl ? 'credentials' : 'server');
       if (savedEmail) setEmail(savedEmail);
       setBioAvailable(!!savedPassword && bioFlag === '1' && Biometric.isModuleAvailable());
@@ -66,6 +71,7 @@ export default function LoginScreen() {
       const baseUrl = await verifyServer(instanceUrl);
       await storage.set(StorageKeys.instanceUrlBackup, baseUrl);
       setInstanceUrl(bareAddress(baseUrl));
+      setVerifiedUrl(baseUrl);
       setStep('credentials');
     } catch (err) {
       setErrorMsg(userMessage(err, 'Could not reach this server.'));
@@ -86,7 +92,7 @@ export default function LoginScreen() {
       setErrorMsg('Fill all fields.');
       return;
     }
-    const ok = await login(email.trim(), password, instanceUrl.trim());
+    const ok = await login(email.trim(), password, verifiedUrl ?? instanceUrl.trim());
     if (!ok) {
       const err = useAuthStore.getState().error || 'Sign-in failed.';
       setErrorMsg(err);
