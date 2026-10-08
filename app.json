@@ -2,7 +2,7 @@
   "expo": {
     "name": "Upande Post Harvest",
     "slug": "post-harvest",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "postharvest",
@@ -40,7 +40,7 @@
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 5002
+      "versionCode": 5100
     },
     "plugins": [
       "./plugins/withReleaseSigning",
@@ -91,7 +91,7 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "runtimeVersion": "1.0",
+    "runtimeVersion": "1.1",
     "updates": {
       "enabled": true,
       "url": "https://sensor.upande.com/api/method/upande_sensors.api.ota.post_harvest_manifest",
