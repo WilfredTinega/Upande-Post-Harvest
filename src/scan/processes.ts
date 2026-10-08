@@ -66,7 +66,7 @@ export function processLabel(keys: ProcessKey[]): string {
     .join(' · ');
 }
 
-/** The app's title: the process this scanner is dedicated to, else "Post Harvest". */
+/** The app's title: the process this scanner is dedicated to, else "Upande Post Harvest". */
 export function appTitle(keys: ProcessKey[]): string {
-  return keys.length === 1 ? (PROCESSES.find((p) => p.key === keys[0])?.label ?? 'Post Harvest') : 'Post Harvest';
+  return keys.length === 1 ? (PROCESSES.find((p) => p.key === keys[0])?.label ?? 'Upande Post Harvest') : 'Upande Post Harvest';
 }

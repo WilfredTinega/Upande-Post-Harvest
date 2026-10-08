@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
@@ -22,6 +22,8 @@ type Props = {
   showSoftKeyboard?: boolean;
   /** Reports whether the field holds focus, i.e. a hardware scan will land. */
   onFocusChange?: (focused: boolean) => void;
+  /** No text field: one wide button that opens the camera, labelled with this. */
+  cameraOnly?: string;
 };
 
 const DEBOUNCE_MS = 300;
@@ -43,6 +45,7 @@ export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
     stickyFocus = false,
     showSoftKeyboard = false,
     onFocusChange,
+    cameraOnly,
   },
   ref,
 ) {
@@ -119,6 +122,21 @@ export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
     router.push('/camera-scanner');
   };
 
+  if (cameraOnly) {
+    return (
+      <Pressable
+        onPress={openCamera}
+        disabled={!editable}
+        style={({ pressed }) => [s.cameraWide, pressed && s.pressed, !editable && s.disabled]}
+        accessibilityRole="button"
+        accessibilityLabel={cameraOnly}
+      >
+        <Ionicons name="camera-outline" size={24} color={colors.textOnPrimary} />
+        <Text style={s.cameraWideText}>{cameraOnly}</Text>
+      </Pressable>
+    );
+  }
+
   return (
     <View style={s.wrap}>
       <TextInput
@@ -178,5 +196,16 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  cameraWide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    minHeight: 56,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary,
+  },
+  cameraWideText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.md, color: colors.textOnPrimary },
+  pressed: { opacity: 0.8 },
   disabled: { opacity: 0.4 },
 });

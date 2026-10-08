@@ -121,7 +121,7 @@ export default function SettingsScreen() {
       if (!moduleReady) {
         dialog(
           'Update needed',
-          'Install the latest build of Post Harvest to enable biometric unlock.',
+          'Install the latest build of Upande Post Harvest to enable biometric unlock.',
           undefined,
           { cancelable: true },
         );

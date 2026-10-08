@@ -33,7 +33,7 @@ export function ProcessLanding({ process, farm, overview, loading, error, onRetr
     <View style={s.section}>
       {showLabel ? <Text style={s.label}>{label.toUpperCase()}</Text> : null}
       {process === 'delivery' ? <DeliveryDateFilter /> : null}
-      {farm ? <ProcessOverview process={process} overview={overview} loading={loading} error={error} onRetry={onRetry} /> : null}
+      {farm ? <ProcessOverview process={process} farm={farm} overview={overview} loading={loading} error={error} onRetry={onRetry} /> : null}
       <View style={s.grid}>
         {actions.map((a) => {
           const blocked = a.needsFarm && !farm;
@@ -110,9 +110,6 @@ function todayCount(
   const n = (v: number | undefined | null) => (v === undefined || v === null ? null : short(v));
   const done = p.opls_total ? Math.min(1, (p.opls_packed ?? 0) / p.opls_total) : 0;
   const counts: Record<string, { value: string | null; unit: string; stems?: string; boxes?: string; progress?: number }> = {
-    'receiving-out': { value: n(p.received_out_buckets), unit: 'bkt', stems: n(p.received_out_stems) ?? '0' },
-    grading: { value: n(p.graded_bunches), unit: 'bunches', stems: n(p.graded_stems) ?? '0' },
-    'ungraded-discard': { value: n(p.ungraded_discard_buckets), unit: 'bkt', stems: n(p.ungraded_discard_stems) ?? '0' },
     packing: {
       value: p.opls_total === undefined ? null : `${n(p.opls_packed) ?? 0} / ${n(p.opls_total)}`,
       unit: 'OPLs',

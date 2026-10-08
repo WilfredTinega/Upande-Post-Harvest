@@ -1,7 +1,8 @@
 import type { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import { scanApi, type Employee, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
-import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseTruck } from './parse';
+import { useFieldRejectsStore } from '@/src/stores/fieldRejectsStore';
+import { scanApi, type Employee, type FieldRejectLine, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
+import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseGraderQr, parseTruck } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
 import { humanText, userMessage } from '@/src/services/user-message';
 import { useScanStore } from '@/src/stores/scanStore';
@@ -114,6 +115,7 @@ export type ActionKey =
   | 'packing'
   | 'packing-reject'
   | 'loading'
+  | 'new-loading-plan'
   | 'undispatch'
   | 'delivery';
 
@@ -141,14 +143,22 @@ export interface ActionDef {
   /** False when the server resolves the farm itself. */
   needsFarm: boolean;
   requirements: Requirement[];
+  /** Opens on the truck list to start a loading plan (New Loading Plan). */
+  startsPlan?: boolean;
+  /** The variety picker lists only what was harvested into the greenhouse today. */
+  harvestedVarietiesOnly?: boolean;
+  /** Scan with the phone camera only (no field for a hardware scanner or typing): the button's label. */
+  cameraOnly?: string;
   /** Loading Plan panel under the scan field: build the plan, load the truck, or dispatch it. */
-  panel?: 'plan' | 'load' | 'dispatch' | 'rejects' | 'delivery';
+  panel?: 'plan' | 'load' | 'dispatch' | 'rejects' | 'delivery' | 'field-rejects';
   /** What the operator should scan next, given the session so far. */
   prompt: (s: ScanSession) => string;
   /** Form-style actions (nothing to scan): a button that records the setup instead of a scan field. */
   submit?: {
     label: string;
     icon: IconName;
+    /** False while a field is still empty: the button shows greyed out. */
+    ready?: (s: ScanSession) => boolean;
     /** Asked (Yes/No) before running; nothing is asked when it returns null. */
     confirm?: (s: ScanSession) => string | null;
     run: (s: ScanSession, update: Update) => Promise<Outcome>;
@@ -297,6 +307,23 @@ async function openPlan(code: string, s: ScanSession, update: Update, create: bo
   );
 }
 
+/** Create a truck's loading plan for a farm and delivery date (or open the one it already has). */
+export function startLoadingPlan(
+  plan: { vehicle: string; farm: string; deliveryDate: string },
+  update: Update,
+): Promise<Outcome> {
+  return run(async () => {
+    const r = await scanApi.openLoadingPlan(plan.vehicle, plan.farm, true, plan.deliveryDate);
+    if (!r.success || !r.plan) return fail(r.error || 'Could not create the Loading Plan');
+    update({ plan: r.plan, truck: plan.vehicle });
+    return info(
+      `${r.plan.name} · truck ${plan.vehicle}`,
+      `${plan.farm} · delivering ${plan.deliveryDate}` +
+        (r.plan.total_boxes ? ` · ${r.plan.total_boxes} box(es) planned` : ' · tap Fetch orders'),
+    );
+  });
+}
+
 const allLoaded = (plan: LoadingPlan) => plan.total_boxes > 0 && plan.loaded_boxes >= plan.total_boxes;
 
 /** Dispatch the truck: submits the plan, creating one Delivery Note per customer. */
@@ -328,6 +355,7 @@ export const ACTIONS: ActionDef[] = [
     icon: 'cut-outline',
     needsFarm: true,
     requirements: ['greenhouse', 'variety', 'stemLength', 'harvester', 'bed', 'stems'],
+    cameraOnly: 'Scan the bucket QR',
     prompt: (s) => {
       const missing = harvestMissing(s);
       if (missing) return `${missing} first`;
@@ -378,11 +406,13 @@ export const ACTIONS: ActionDef[] = [
   {
     key: 'field-rejects',
     label: 'Field Rejects',
-    description: 'Stems rejected in the greenhouse, with the reason',
+    description: 'Stems rejected in the greenhouse, with the bed/bay and reason',
     group: PRODUCTION,
     icon: 'alert-circle-outline',
     needsFarm: true,
-    requirements: ['greenhouse', 'variety', 'fieldRejectReason', 'stems'],
+    requirements: ['greenhouse', 'variety', 'fieldRejectReason', 'bed', 'stems'],
+    harvestedVarietiesOnly: true,
+    panel: 'field-rejects',
     prompt: (s) =>
       !s.greenhouse
         ? 'Select the greenhouse'
@@ -390,26 +420,34 @@ export const ACTIONS: ActionDef[] = [
           ? 'Select the variety'
           : !s.rejectionReason
             ? 'Choose the rejection reason'
-            : !stemCount(s)
-              ? 'Enter the stems rejected'
-              : `Record ${stemCount(s)} rejected stems`,
-    handle: async () => warn('Nothing to scan here', 'Fill in the rejects and tap Record field rejects'),
+            : !s.bed.trim()
+              ? 'Enter the bed / bay'
+              : !stemCount(s)
+                ? 'Enter the stems rejected'
+                : `Add ${stemCount(s)} rejected stems to the list`,
+    handle: async () => warn('Nothing to scan here', 'Fill in the reject and tap Add to list'),
     submit: {
-      label: 'Record field rejects',
-      icon: 'checkmark-circle-outline',
-      run: (s, update) =>
-        run(async () => {
-          if (!s.greenhouse) return warn('Select the greenhouse first');
-          if (!s.variety) return warn('Select the variety first');
-          if (!s.rejectionReason) return warn('Choose the rejection reason first');
-          if (!stemCount(s)) return warn('Enter the number of stems rejected');
-          const r = await scanApi.fieldRejects(s.farm, s.greenhouse, s.variety, stemCount(s), s.rejectionReason);
-          if (r.success) {
-            update({ stems: '' });
-            return ok(`${r.qty} stems rejected`, `${r.variety} · ${r.greenhouse}\n${r.reason}`);
-          }
-          return rejected(r, [['not a greenhouse', 'error'], ['not found', 'error']]);
-        }),
+      label: 'Add to list',
+      icon: 'add-circle-outline',
+      ready: (s) => !!(s.greenhouse && s.variety && s.rejectionReason && s.bed.trim() && stemCount(s)),
+      run: async (s, update) => {
+        if (!s.greenhouse) return warn('Select the greenhouse first');
+        if (!s.variety) return warn('Select the variety first');
+        if (!s.rejectionReason) return warn('Choose the rejection reason first');
+        if (!s.bed.trim()) return warn('Enter the bed / bay first');
+        if (!stemCount(s)) return warn('Enter the number of stems rejected');
+        const line: FieldRejectLine = {
+          greenhouse: s.greenhouse,
+          item_code: s.variety,
+          reason: s.rejectionReason,
+          bed: s.bed.trim(),
+          stems: stemCount(s),
+        };
+        // Greenhouse and variety stay set; bed, reason and stems are entered afresh.
+        useFieldRejectsStore.getState().add(s.farm, line);
+        update({ stems: '', bed: '', rejectionReason: '' });
+        return info(`${line.stems} stems added`, `${line.item_code} · bed ${line.bed}\n${line.reason}`);
+      },
     },
   },
   receivingAction('receiving', 'Receiving', 'Receiving', 'Harvest → receiving cold store', 'enter-outline', PRODUCTION),
@@ -457,9 +495,11 @@ export const ACTIONS: ActionDef[] = [
     prompt: (s) => (s.grader ? 'Scan a bunch QR' : 'Scan the grader QR'),
     handle: (code, s, update) =>
       run(async () => {
-        if (!s.grader) {
+        // A grader badge sets the grader, and mid-session switches to that grader.
+        const badge = parseGraderQr(code);
+        if (!s.grader || badge) {
           if (parseBunch(code)) return warn('Select or scan the grader first', 'That was a bunch QR');
-          const id = parseEmployee(code);
+          const id = badge ?? parseEmployee(code);
           if (!id) return warn('Invalid grader QR code');
           const emp = await scanApi.getEmployee(id);
           if (!emp.success || !emp.name) return fail(emp.error || `Grader ${id} not found`);
@@ -822,6 +862,19 @@ export const ACTIONS: ActionDef[] = [
       }),
   },
 ];
+
+// New Loading Plan: Load & Dispatch opening on the truck list, its own tile on the Dispatch home.
+{
+  const loading = ACTIONS.find((a) => a.key === 'loading')!;
+  ACTIONS.splice(ACTIONS.indexOf(loading), 0, {
+    ...loading,
+    key: 'new-loading-plan',
+    label: 'New Loading Plan',
+    description: 'Start a truck’s loading plan for this farm',
+    icon: 'add-circle-outline',
+    startsPlan: true,
+  });
+}
 
 export function getAction(key: string | undefined): ActionDef | undefined {
   return ACTIONS.find((a) => a.key === key);

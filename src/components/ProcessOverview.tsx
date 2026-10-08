@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Overview } from '@/src/services/scan-api';
 import { ProcessOverviewSkeleton } from '@/src/components/Skeleton';
+import { AwaitingReceivingSheet } from '@/src/components/AwaitingReceivingSheet';
 import type { ProcessKey } from '@/src/scan/processes';
 import { fontFamily, fontSize, spacing } from '@/src/theme';
 
@@ -22,6 +23,8 @@ interface Figure {
   chip: string;
   value: number | null | undefined;
   unit: string;
+  /** Tapping the tile opens this list. */
+  sheet?: 'awaiting-receiving';
 }
 
 interface Figures {
@@ -42,7 +45,7 @@ function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
       hero: { chip: 'HARVESTED TODAY', value: p.harvested_stems, unit: `stems · ${num(p.harvested_buckets)} buckets` },
       tiles: [
         { chip: 'RECEIVED', value: p.received_stems, unit: `stems · ${num(p.received_buckets)} buckets` },
-        { chip: 'AWAITING RECEIVING', value: p.awaiting_receiving, unit: 'buckets' },
+        { chip: 'AWAITING RECEIVING', value: p.awaiting_receiving, unit: 'buckets', sheet: 'awaiting-receiving' },
       ],
     };
   }
@@ -131,6 +134,7 @@ function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
 
 interface Props {
   process: ProcessKey;
+  farm: string;
   overview: Overview | null;
   loading: boolean;
   /** Why the figures couldn't be loaded; shown with a retry when there are none to show. */
@@ -138,8 +142,9 @@ interface Props {
   onRetry?: () => void;
 }
 
-export function ProcessOverview({ process, overview, loading, error, onRetry }: Props) {
+export function ProcessOverview({ process, farm, overview, loading, error, onRetry }: Props) {
   const f = figuresFor(process, overview);
+  const [sheet, setSheet] = useState<Figure['sheet'] | null>(null);
   // First load (nothing to show yet): shimmering tiles in the figures' own shape.
   if (!f && !overview && (loading || !error)) return <ProcessOverviewSkeleton />;
   if (!f) {
@@ -173,20 +178,32 @@ export function ProcessOverview({ process, overview, loading, error, onRetry }: 
         <Ionicons name={f.icon} size={64} color="rgba(255,255,255,0.06)" style={s.heroIcon} />
       </View>
       <View style={s.row}>
-        {f.tiles.map((t, i) => (
-          <View key={t.chip} style={[s.tile, { backgroundColor: i === 0 ? DARK_A : DARK_B }]}>
-            <Text style={s.tileChip} numberOfLines={1}>
-              {t.chip}
-            </Text>
-            <Text style={s.tileNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-              {num(t.value)}
-            </Text>
-            <Text style={s.tileUnit} numberOfLines={2}>
-              {t.unit}
-            </Text>
-          </View>
-        ))}
+        {f.tiles.map((t, i) => {
+          // Only a tile with something to list opens its sheet.
+          const opens = !!t.sheet && !!t.value;
+          return (
+            <Pressable
+              key={t.chip}
+              onPress={opens ? () => setSheet(t.sheet) : undefined}
+              disabled={!opens}
+              style={({ pressed }) => [s.tile, { backgroundColor: i === 0 ? DARK_A : DARK_B }, pressed && s.tilePressed]}
+              accessibilityRole={opens ? 'button' : undefined}
+            >
+              {opens ? <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.5)" style={s.tileOpen} /> : null}
+              <Text style={s.tileChip} numberOfLines={1}>
+                {t.chip}
+              </Text>
+              <Text style={s.tileNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
+                {num(t.value)}
+              </Text>
+              <Text style={s.tileUnit} numberOfLines={2}>
+                {t.unit}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
+      <AwaitingReceivingSheet farm={farm} open={sheet === 'awaiting-receiving'} onClose={() => setSheet(null)} />
     </View>
   );
 }
@@ -224,6 +241,8 @@ const s = StyleSheet.create({
   emptyText: { fontFamily: fontFamily.regular, fontSize: fontSize.md, color: 'rgba(255,255,255,0.6)' },
   row: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   tile: { flex: 1, borderRadius: 20, padding: spacing.lg, minHeight: 110, justifyContent: 'flex-end' },
+  tilePressed: { opacity: 0.85 },
+  tileOpen: { position: 'absolute', top: spacing.md, right: spacing.md },
   tileChip: {
     fontFamily: fontFamily.medium,
     fontSize: fontSize.xs,

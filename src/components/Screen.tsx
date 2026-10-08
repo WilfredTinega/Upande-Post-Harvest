@@ -8,9 +8,9 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, fontFamily, fontSize } from '@/src/theme';
+import { KeyboardScrollView } from '@/src/components/KeyboardScrollView';
 
 interface ScreenProps {
   title?: string;
@@ -95,20 +95,15 @@ export function Screen({
     // Keyboard-aware so a focused input (stems, reasons, search) scrolls clear
     // of the soft keyboard instead of hiding behind it.
     body = (
-      <KeyboardAwareScrollView
-        style={{ flex: 1 }}
+      <KeyboardScrollView
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        enableOnAndroid
-        extraScrollHeight={spacing.xl}
-        extraHeight={spacing.xxl * 3}
         refreshControl={
           onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} /> : undefined
         }
       >
         {children}
-      </KeyboardAwareScrollView>
+      </KeyboardScrollView>
     );
   } else {
     body = <View style={{ flex: 1 }}>{children}</View>;

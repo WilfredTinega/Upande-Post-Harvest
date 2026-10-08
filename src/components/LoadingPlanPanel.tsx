@@ -15,7 +15,7 @@ interface Props {
   onRefresh?: () => void;
   onDispatch?: () => void;
   dispatching?: boolean;
-  /** Plan tomorrow's orders' packed boxes onto the truck in one go. */
+  /** Plan the delivery date's orders' packed boxes onto the truck in one go. */
   onFetch?: () => void;
   fetching?: boolean;
 }
@@ -121,7 +121,9 @@ export function LoadingPlanPanel({
 
       {!dispatched && onFetch ? (
         <Button
-          label={fetching ? 'Fetching orders…' : "Fetch tomorrow's orders"}
+          label={
+            fetching ? 'Fetching orders…' : plan.delivery_date ? `Fetch orders for ${plan.delivery_date}` : "Fetch tomorrow's orders"
+          }
           iconLeft="download-outline"
           variant="outline"
           onPress={onFetch}
