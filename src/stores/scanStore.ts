@@ -66,7 +66,8 @@ export const useScanStore = create<ScanState>((set, get) => ({
   canViewDevices: false,
   farm: '',
   processes: [],
-  harvestByStemLength: false,
+  // On by default: harvesting records the stem length unless switched off in Settings.
+  harvestByStemLength: true,
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -81,7 +82,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
       set({
         farm: get().farm || farm || '',
         processes: get().processes.length ? get().processes : parseList(processes).filter(isProcessKey),
-        harvestByStemLength: byStemLength === '1',
+        harvestByStemLength: byStemLength !== '0',
         ...(cachedFarms.length && get().farmsSource !== 'server'
           ? { farms: cachedFarms, farmsSource: 'cache' as const }
           : {}),
