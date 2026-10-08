@@ -1,15 +1,14 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
+import { useSheetLayout } from '@/src/components/useSheetLayout';
 import { userMessage } from '@/src/services/user-message';
 import { cachedList, fetchList } from '@/src/services/list-cache';
 
 /** Pause after typing before searching. */
 const SEARCH_DELAY_MS = 150;
-
 
 export interface PickerRow {
   title: string;
@@ -22,6 +21,8 @@ export interface PickerRow {
   alert?: string;
   /** Short text on the right, e.g. progress. */
   right?: string;
+  /** Detail behind a caret on the row, e.g. an order's varieties; the first column takes the rest of the width. */
+  table?: { columns: string[]; rows: string[][] };
 }
 
 interface Props<T> {
@@ -64,13 +65,16 @@ export function SearchPicker<T>({
   disabled = false,
   cacheKey,
 }: Props<T>) {
-  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The one row whose table is open; opening another closes it.
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const toggle = (key: string) => setExpanded((prev) => (prev === key ? null : key));
   const seq = useRef(0);
+  const { overlayRef, onOverlayLayout, sheetStyle } = useSheetLayout(open);
   const loadRef = useRef(load);
   useLayoutEffect(() => {
     loadRef.current = load;
@@ -107,6 +111,7 @@ export function SearchPicker<T>({
   const close = () => {
     setOpen(false);
     setQuery('');
+    setExpanded(null);
     onClose?.();
   };
 
@@ -147,8 +152,8 @@ export function SearchPicker<T>({
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={close}>
-        <Pressable style={s.overlay} onPress={close}>
-          <Pressable style={[s.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => {}}>
+        <Pressable ref={overlayRef} style={s.overlay} onPress={close} onLayout={onOverlayLayout}>
+          <Pressable style={[s.sheet, sheetStyle]} onPress={() => {}}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>{label}</Text>
               <Pressable onPress={close} style={s.closeBtn} accessibilityLabel="Close">
@@ -167,11 +172,11 @@ export function SearchPicker<T>({
                   autoCapitalize="none"
                   style={s.search}
                 />
-                
               </View>
             ) : null}
             {error ? <Text style={s.error}>{error}</Text> : null}
             <FlatList
+              style={s.list}
               // Each load, a new search too, shows the skeleton in place of the old rows.
               data={loading ? [] : items}
               keyExtractor={keyOf}
@@ -181,24 +186,65 @@ export function SearchPicker<T>({
               ListEmptyComponent={loading ? <ListSkeleton /> : error ? null : <Text style={s.empty}>{emptyText}</Text>}
               renderItem={({ item }) => {
                 const r = row(item);
+                const key = keyOf(item);
+                const isOpen = expanded === key;
                 return (
-                  <Pressable onPress={() => pick(item)} style={({ pressed }) => [s.option, pressed && s.pressed]}>
-                    {r.stripe ? (
-                      <View style={[s.stripe, { backgroundColor: r.stripe === 'bad' ? colors.error : colors.success }]} />
-                    ) : null}
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.optionLabel}>{r.title}</Text>
-                      {r.lead || r.sub ? (
-                        <Text style={s.optionSub}>
-                          {r.lead ? <Text style={s.lead}>{r.lead}</Text> : null}
-                          {r.lead && r.sub ? ' · ' : ''}
-                          {r.sub ?? ''}
-                        </Text>
+                  <View>
+                    <Pressable onPress={() => pick(item)} style={({ pressed }) => [s.option, pressed && s.pressed]}>
+                      {r.stripe ? (
+                        <View
+                          style={[
+                            s.stripe,
+                            {
+                              backgroundColor: r.stripe === 'bad' ? colors.error : colors.success,
+                            },
+                          ]}
+                        />
                       ) : null}
-                      {r.alert ? <Text style={s.alert}>{r.alert}</Text> : null}
-                    </View>
-                    {r.right ? <Text style={s.right}>{r.right}</Text> : null}
-                  </Pressable>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.optionLabel}>{r.title}</Text>
+                        {r.lead || r.sub ? (
+                          <Text style={s.optionSub}>
+                            {r.lead ? <Text style={s.lead}>{r.lead}</Text> : null}
+                            {r.lead && r.sub ? ' · ' : ''}
+                            {r.sub ?? ''}
+                          </Text>
+                        ) : null}
+                        {r.alert ? <Text style={s.alert}>{r.alert}</Text> : null}
+                      </View>
+                      {r.right ? <Text style={s.right}>{r.right}</Text> : null}
+                      {r.table?.rows.length ? (
+                        <Pressable
+                          onPress={() => toggle(key)}
+                          hitSlop={10}
+                          style={s.caret}
+                          accessibilityLabel={isOpen ? `Hide ${r.title} details` : `Show ${r.title} details`}
+                        >
+                          <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={20} color={colors.text} />
+                        </Pressable>
+                      ) : null}
+                    </Pressable>
+                    {isOpen && r.table ? (
+                      <View style={s.table}>
+                        <View style={[s.tableRow, s.tableHead]}>
+                          {r.table.columns.map((c, i) => (
+                            <Text key={i} style={[s.th, i === 0 ? s.cellFirst : s.cell]}>
+                              {c}
+                            </Text>
+                          ))}
+                        </View>
+                        {r.table.rows.map((cells, j) => (
+                          <View key={j} style={s.tableRow}>
+                            {cells.map((c, i) => (
+                              <Text key={i} style={[s.td, i === 0 ? s.cellFirst : s.cell]} numberOfLines={2}>
+                                {c}
+                              </Text>
+                            ))}
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
                 );
               }}
             />
@@ -210,7 +256,12 @@ export function SearchPicker<T>({
 }
 
 const s = StyleSheet.create({
-  label: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text, marginBottom: spacing.sm },
+  label: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
   field: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -225,21 +276,46 @@ const s = StyleSheet.create({
   },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.6 },
-  value: { fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text },
-  valueSub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
+  value: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.md,
+    color: colors.text,
+  },
+  valueSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
   placeholder: { color: colors.textMuted, fontFamily: fontFamily.regular },
-  right: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
-  overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
+  right: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'flex-end',
+  },
   sheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
     padding: spacing.lg,
-    // Fixed, so the sheet doesn't jump between loading and showing results.
-    height: '75%',
   },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
-  sheetTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.text },
+  list: { flexShrink: 1 },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  sheetTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.lg,
+    color: colors.text,
+  },
   closeBtn: {
     width: 40,
     height: 40,
@@ -258,15 +334,86 @@ const s = StyleSheet.create({
     minHeight: 44,
     marginBottom: spacing.sm,
   },
-  search: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text, padding: 0 },
-  error: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.error, marginBottom: spacing.sm },
-  option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, minHeight: 56 },
-  optionLabel: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
-  optionSub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
+  search: {
+    flex: 1,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.md,
+    color: colors.text,
+    padding: 0,
+  },
+  error: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.sm,
+    color: colors.error,
+    marginBottom: spacing.sm,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    minHeight: 56,
+  },
+  optionLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.md,
+    color: colors.text,
+  },
+  optionSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
   lead: { fontFamily: fontFamily.bold, color: colors.text },
   stripe: { alignSelf: 'stretch', width: 4, borderRadius: 2 },
-  alert: { fontFamily: fontFamily.semiBold, fontSize: fontSize.xs, color: colors.error, marginTop: 2 },
-  separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  caret: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    overflow: 'hidden',
+    marginBottom: spacing.md,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  tableHead: { borderTopWidth: 0, backgroundColor: colors.surfaceAlt },
+  th: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  td: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
+  cellFirst: { flex: 1, minWidth: 0 },
+  cell: { width: 64, textAlign: 'right' },
+  alert: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.xs,
+    color: colors.error,
+    marginTop: 2,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
   empty: {
     fontFamily: fontFamily.regular,
     fontSize: fontSize.sm,

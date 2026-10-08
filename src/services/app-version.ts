@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 
@@ -17,3 +18,10 @@ export const APP_VERSION: string | null =
   manifest?.extra?.appVersion ??
   Constants.expoConfig?.version ??
   null;
+
+/**
+ * The 1.0 APK was built with the keyboard in "pan" mode: Android slides the whole window
+ * up itself, so the screens must not scroll for the keyboard as well (that overshoots
+ * into blank space). Later APKs keep the window still and leave the scrolling to us.
+ */
+export const KEYBOARD_PANS = Platform.OS === 'android' && Updates.isEnabled && Updates.runtimeVersion === '1.0';

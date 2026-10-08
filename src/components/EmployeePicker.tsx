@@ -8,12 +8,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { scanApi, type Employee, type EmployeeRole } from '@/src/services/scan-api';
 import { cachedList, employeesKey, fetchList } from '@/src/services/list-cache';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
+import { useSheetLayout } from '@/src/components/useSheetLayout';
 import { userMessage } from '@/src/services/user-message';
 
 /** Pause after typing before searching. */
@@ -43,8 +43,8 @@ export function EmployeePicker({
   role = 'harvester',
   inline = false,
 }: Props) {
-  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const { overlayRef, onOverlayLayout, sheetStyle } = useSheetLayout(open);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
@@ -115,8 +115,8 @@ export function EmployeePicker({
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <Pressable style={s.overlay} onPress={() => setOpen(false)}>
-          <Pressable style={[s.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => {}}>
+        <Pressable ref={overlayRef} style={s.overlay} onPress={() => setOpen(false)} onLayout={onOverlayLayout}>
+          <Pressable style={[s.sheet, sheetStyle]} onPress={() => {}}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>{label}</Text>
               <Pressable onPress={() => setOpen(false)} style={s.closeBtn}>
@@ -138,6 +138,7 @@ export function EmployeePicker({
             </View>
             {error ? <Text style={s.error}>{error}</Text> : null}
             <FlatList
+              style={s.list}
               // Each load, a new search too, shows the skeleton in place of the old rows.
               data={loading ? [] : results}
               keyExtractor={(e) => e.name}
@@ -194,9 +195,8 @@ const s = StyleSheet.create({
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
     padding: spacing.lg,
-    // Fixed, so the sheet doesn't jump between loading and showing results.
-    height: '75%',
   },
+  list: { flexShrink: 1 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   sheetTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.text },
   closeBtn: {

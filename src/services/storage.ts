@@ -16,6 +16,8 @@ export const StorageKeys = {
   harvestByStemLength: 'harvest_by_stem_length',
   // Farm list from the last successful setup load, offered before sign-in.
   farmsCache: 'farms_cache',
+  // Field Rejects lists not submitted yet, per farm (JSON {farm: FieldRejectLine[]}).
+  fieldRejects: 'field_rejects',
   biometricEnabled: 'biometric_enabled',
   // Password, kept in the OS secure enclave. Fed back into the login endpoint to
   // silently re-authenticate when the server session expires (403 session_expired)

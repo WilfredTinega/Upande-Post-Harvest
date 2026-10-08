@@ -71,6 +71,13 @@ export function parseEmployee(raw: string): string | null {
   return text || null;
 }
 
+/** The grader id on a grader badge QR ({"grader": X}); null for anything else. */
+export function parseGraderQr(raw: string): string | null {
+  const data = parseJson(raw);
+  if (!data || data.bunch_id || !data.grader) return null;
+  return String(data.grader).trim() || null;
+}
+
 export function parseTruck(raw: string): string | null {
   const data = parseJson(raw);
   return data?.truck ? String(data.truck).trim() : null;

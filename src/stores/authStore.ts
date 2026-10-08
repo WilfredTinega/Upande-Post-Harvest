@@ -97,7 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { ok: false, reason: 'unavailable' };
     }
     const auth = await Biometric.authenticate({
-      promptMessage: 'Unlock Post Harvest',
+      promptMessage: 'Unlock Upande Post Harvest',
       fallbackLabel: 'Use password',
       cancelLabel: 'Cancel',
     });
