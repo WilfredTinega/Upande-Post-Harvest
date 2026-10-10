@@ -2,7 +2,7 @@
   "expo": {
     "name": "Upande Post Harvest",
     "slug": "post-harvest",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "postharvest",
@@ -40,7 +40,7 @@
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 5101
+      "versionCode": 5102
     },
     "plugins": [
       "./plugins/withReleaseSigning",
