@@ -612,20 +612,17 @@ export const ACTIONS: ActionDef[] = [
           update({
             grader: { name: emp.name, employee_name: emp.employee_name ?? emp.name, employee_number: emp.employee_number },
           });
-          return info(`Grader: ${emp.employee_name ?? emp.name}`, 'Now scan bunches');
+          // Setting the grader is not a graded bunch: no beep.
+          return { ...info(`Grader: ${emp.employee_name ?? emp.name}`, 'Now scan bunches'), silent: true };
         }
         const p = bunchPayload(code);
         if (!p) return fail('Invalid QR');
         const r = await scanApi.grading(p.json, s.farm, s.grader.employee_number || s.grader.name);
         if (r.success) {
-          // Graders scan bunch after bunch: the toast is enough, no beep.
-          return {
-            ...ok(
-              `${r.bunch_id} graded`,
-              `${r.variety} · ${r.stem_length} · ${r.bunch_size}${r.held ? ' · held (same-day harvest)' : ''}`,
-            ),
-            silent: true,
-          };
+          return ok(
+            `${r.bunch_id} graded`,
+            `${r.variety} · ${r.stem_length} · ${r.bunch_size}${r.held ? ' · held (same-day harvest)' : ''}`,
+          );
         }
         if ((r.error || '').toLowerCase().includes('already graded')) {
           return { ...warn('Already graded', humanText(r.error || '') ?? undefined), dismissAfterMs: ALREADY_SCANNED_MS };
