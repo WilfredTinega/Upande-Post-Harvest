@@ -134,9 +134,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   forgetDevice: async () => {
-    // The scanner's own configuration (station farm, processes) belongs to the
-    // device, not the user, so it survives.
-    await storage.clearExcept([StorageKeys.farm, StorageKeys.processes, StorageKeys.farmsCache]);
+    // The station farm belongs to the device, so it survives; the processes are the
+    // signed-in user's and come again with the next sign-in.
+    await storage.clearExcept([StorageKeys.farm, StorageKeys.farmsCache]);
     set({
       hasSession: false,
       biometricEnabled: false,

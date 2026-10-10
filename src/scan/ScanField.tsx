@@ -38,7 +38,7 @@ const REFOCUS_DELAY_MS = 100;
  */
 export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
   {
-    placeholder = 'Scan or type code',
+    placeholder = 'Scan',
     onScan,
     autoFocus,
     editable = true,

@@ -2,8 +2,8 @@ import type { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 
 /**
- * The three post-harvest processes. Each scanner is dedicated to one or more
- * of them; home and the sidebar only show the enabled processes' actions.
+ * The post-harvest processes. Each user is given one or more of them in ERPNext
+ * (Post Harvest Settings: Users); home and the sidebar only show those processes' actions.
  */
 export type ProcessKey = 'production' | 'packhouse' | 'dispatch' | 'delivery' | 'shop' | 'quality';
 
@@ -18,13 +18,13 @@ export const PROCESSES: ProcessDef[] = [
   {
     key: 'production',
     label: 'Production',
-    description: 'Harvesting → receiving cold store',
+    description: 'Harvesting and field rejects',
     icon: 'leaf-outline',
   },
   {
     key: 'packhouse',
     label: 'Packhouse',
-    description: 'Receiving out → grading → packing',
+    description: 'Receiving → grading → packing → shop',
     icon: 'ribbon-outline',
   },
   {
@@ -42,7 +42,7 @@ export const PROCESSES: ProcessDef[] = [
   {
     key: 'shop',
     label: 'Shop',
-    description: 'Day 4 flowers → local sale, vase, shop discards',
+    description: 'Walk-in shop, vase, shop discards',
     icon: 'storefront-outline',
   },
   {
@@ -60,7 +60,7 @@ export function isProcessKey(v: unknown): v is ProcessKey {
 }
 
 export function processLabel(keys: ProcessKey[]): string {
-  if (!keys.length) return 'No process chosen';
+  if (!keys.length) return 'No processes';
   return PROCESSES.filter((p) => keys.includes(p.key))
     .map((p) => p.label)
     .join(' · ');

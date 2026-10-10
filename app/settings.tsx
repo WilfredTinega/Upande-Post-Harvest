@@ -43,9 +43,6 @@ export default function SettingsScreen() {
   const loadSetup = useScanStore((st) => st.load);
   const setupLoaded = useScanStore((st) => st.loaded);
   const canViewDevices = useScanStore((st) => st.canViewDevices);
-  const processes = useScanStore((st) => st.processes);
-  const harvestByStemLength = useScanStore((st) => st.harvestByStemLength);
-  const setHarvestByStemLength = useScanStore((st) => st.setHarvestByStemLength);
 
   const update = useUpdateStore((st) => st.update);
   const checking = useUpdateStore((st) => st.checking);
@@ -210,21 +207,6 @@ export default function SettingsScreen() {
       <Card>
         <ScannerConfig />
       </Card>
-
-      {processes.includes('production') ? (
-        <Card title="Harvesting">
-          <View style={s.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Enter stem length</Text>
-              <Text style={s.rowHint}>
-                Pick the stem length for each bucket. Varieties that have stem-length variants are harvested as
-                that variant; the others keep their item and record the length.
-              </Text>
-            </View>
-            <Toggle value={harvestByStemLength} onChange={() => setHarvestByStemLength(!harvestByStemLength)} />
-          </View>
-        </Card>
-      ) : null}
 
       <Card title="Security">
         <View style={s.row}>
