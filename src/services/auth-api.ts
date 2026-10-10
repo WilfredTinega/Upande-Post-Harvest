@@ -70,6 +70,17 @@ export async function loginToServer(bareUrl: string, email: string, password: st
   await storage.set(StorageKeys.passwordBackup, password);
   if (msg.full_name) await storage.set(StorageKeys.fullName, String(msg.full_name));
 
+  // Adds this user to Post Harvest Settings' Users table when they have no row. Never
+  // blocks the sign-in: a missing row still gets Production.
+  const register = endpoint('auth.register_app_user');
+  await axios
+    .post(`${baseUrl}${register.path}`, register.args, {
+      headers: { 'Content-Type': 'application/json', Cookie: `sid=${sid}` },
+      timeout: 15000,
+      validateStatus: () => true,
+    })
+    .catch(() => undefined);
+
   return { baseUrl, userId, email, fullName: msg.full_name ?? null };
 }
 
