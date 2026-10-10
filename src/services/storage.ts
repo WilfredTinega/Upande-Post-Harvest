@@ -19,6 +19,9 @@ export const StorageKeys = {
   // Field Rejects lists not submitted yet, per farm (JSON {farm: FieldRejectLine[]}).
   fieldRejects: 'field_rejects',
   biometricEnabled: 'biometric_enabled',
+  // The log-out mark (Post Harvest Settings' Log Out Devices) seen since the last
+  // password sign-in; the app signs out when the server's mark moves past it.
+  logoutMark: 'logout_mark',
   // Password, kept in the OS secure enclave. Fed back into the login endpoint to
   // silently re-authenticate when the server session expires (403 session_expired)
   // and to re-authenticate behind the biometric unlock.

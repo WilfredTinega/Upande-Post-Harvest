@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { storage, StorageKeys } from '@/src/services/storage';
 import { scanApi } from '@/src/services/scan-api';
+import { getInstallId } from '@/src/services/install-register';
+import { LOGOUT_MARK_PENDING, useAuthStore } from '@/src/stores/authStore';
 import { isProcessKey, type ProcessKey } from '@/src/scan/processes';
 import { userMessage } from '@/src/services/user-message';
 
@@ -95,7 +97,18 @@ export const useScanStore = create<ScanState>((set, get) => ({
     set({ loading: true, error: null });
     await get().hydrate();
     try {
-      const setup = await scanApi.setup();
+      const setup = await scanApi.setup(await getInstallId());
+      // Logged out from Post Harvest Settings (this device, or all of them): sign out and
+      // forget the saved password, so only a typed one gets back in.
+      if (setup.logout_mark !== undefined) {
+        const seen = await storage.get(StorageKeys.logoutMark);
+        if (seen === null || seen === LOGOUT_MARK_PENDING) {
+          await storage.set(StorageKeys.logoutMark, setup.logout_mark);
+        } else if (seen !== setup.logout_mark) {
+          await useAuthStore.getState().forgetDevice();
+          return;
+        }
+      }
       const farms = (setup.farms ?? []).filter(Boolean);
       if (farms.length) {
         set({ farms, farmsSource: 'server', farmsNotice: null });
