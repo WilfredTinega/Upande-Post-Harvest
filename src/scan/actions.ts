@@ -21,6 +21,10 @@ export interface Outcome {
   detail?: string;
   /** Counts toward the session's successful-scan tally. */
   counts?: boolean;
+  /** No beep. */
+  silent?: boolean;
+  /** A warning or error closes itself after this long instead of waiting to be closed. */
+  dismissAfterMs?: number;
 }
 
 export interface ScanSession {
@@ -184,6 +188,9 @@ const fail = (title: string, detail?: string): Outcome => ({ tone: 'error', titl
 const info = (title: string, detail?: string): Outcome => ({ tone: 'info', title, detail });
 
 const errorOf = (err: unknown): string => userMessage(err, 'Scan failed. Try again.');
+
+/** How long an "already scanned" warning stays up before it closes itself. */
+const ALREADY_SCANNED_MS = 1000;
 
 /** Map a `{success:false, error}` reply to an outcome, using rules [substring, tone, title?]. */
 function rejected(reply: ScanReply, rules: [string, Tone, string?][] = []): Outcome {
@@ -611,13 +618,19 @@ export const ACTIONS: ActionDef[] = [
         if (!p) return fail('Invalid QR');
         const r = await scanApi.grading(p.json, s.farm, s.grader.employee_number || s.grader.name);
         if (r.success) {
-          return ok(
-            `${r.bunch_id} graded`,
-            `${r.variety} · ${r.stem_length} · ${r.bunch_size}${r.held ? ' · held (same-day harvest)' : ''}`,
-          );
+          // Graders scan bunch after bunch: the toast is enough, no beep.
+          return {
+            ...ok(
+              `${r.bunch_id} graded`,
+              `${r.variety} · ${r.stem_length} · ${r.bunch_size}${r.held ? ' · held (same-day harvest)' : ''}`,
+            ),
+            silent: true,
+          };
+        }
+        if ((r.error || '').toLowerCase().includes('already graded')) {
+          return { ...warn('Already graded', humanText(r.error || '') ?? undefined), dismissAfterMs: ALREADY_SCANNED_MS };
         }
         return rejected(r, [
-          ['already graded', 'warning', 'Already graded'],
           ['insufficient stock', 'error'],
           ['not found', 'warning', 'Item/UOM not found'],
           ['does not exist', 'warning', 'Item/UOM not found'],

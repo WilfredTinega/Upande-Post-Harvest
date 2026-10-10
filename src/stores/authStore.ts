@@ -7,6 +7,9 @@ import { reportInstall } from '@/src/services/install-register';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
+/** Stored as the seen log-out mark right after a password sign-in: take the server's next one as seen. */
+export const LOGOUT_MARK_PENDING = 'pending';
+
 export interface AuthState {
   hydrated: boolean;
   status: Status;
@@ -23,7 +26,8 @@ export interface AuthState {
   biometricLocked: boolean;
 
   hydrate: () => Promise<void>;
-  login: (email: string, password: string, bareUrl: string) => Promise<boolean>;
+  /** `remembered`: signing in again with the saved password (biometric unlock), not a typed one. */
+  login: (email: string, password: string, bareUrl: string, remembered?: boolean) => Promise<boolean>;
   setBiometricEnabled: (on: boolean) => Promise<void>;
   /** Prompt the OS biometric, then RE-AUTHENTICATE using the stored password
    *  (re-establishing a fresh session cookie) — not just clearing the gate. */
@@ -70,7 +74,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  login: async (email, password, bareUrl) => {
+  login: async (email, password, bareUrl, remembered = false) => {
     set({ status: 'loading', error: null });
     try {
       const result = await loginToServer(bareUrl, email, password);
@@ -84,6 +88,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       // A sign-in binds this account to the device in the register; never throttled.
       reportInstall({ reason: 'login', user: result.email });
+      // A typed password starts afresh: the next setup records the current log-out mark.
+      // A biometric unlock does not, so a log-out made while the phone was locked still lands.
+      if (!remembered) await storage.set(StorageKeys.logoutMark, LOGOUT_MARK_PENDING);
       return true;
     } catch (err) {
       const message = userMessage(err, 'Could not sign in. Try again.');
@@ -115,7 +122,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!email || !password || !url) {
       return { ok: false, reason: 'no_credentials' };
     }
-    const ok = await get().login(email, password, url);
+    const ok = await get().login(email, password, url, true);
     if (!ok) {
       return { ok: false, reason: 'auth_failed', message: get().error ?? undefined };
     }

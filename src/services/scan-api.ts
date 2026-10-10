@@ -87,6 +87,8 @@ export interface ScanSetup {
   processes?: string[];
   /** Post Harvest Settings: harvesting asks for each bucket's stem length. */
   harvest_by_stem_length?: boolean;
+  /** Post Harvest Settings' Log Out Devices for this device: it signs out when this changes. */
+  logout_mark?: string;
 }
 
 export interface Employee {
@@ -471,7 +473,8 @@ export interface PlanReply extends ScanReply {
 }
 
 export const scanApi = {
-  setup: () => callMethod<ScanSetup>('setup.get_scan_setup'),
+  setup: (install_id?: string | null) =>
+    callMethod<ScanSetup>('setup.get_scan_setup', install_id ? { install_id } : {}),
   /** Today's figures per process; Delivery's for `deliveryDate` (default today). */
   overview: (farm: string, deliveryDate?: string) =>
     callMethod<Overview>('setup.get_overview', deliveryDate ? { farm, delivery_date: deliveryDate } : { farm }),

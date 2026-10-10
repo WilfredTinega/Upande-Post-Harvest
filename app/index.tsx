@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AppState,
   FlatList,
   Pressable,
   RefreshControl,
@@ -44,6 +45,11 @@ export default function StartScreen() {
 
   useEffect(() => {
     load();
+    // Back in the foreground: the setup again, so a log-out from Post Harvest Settings lands.
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') load();
+    });
+    return () => sub.remove();
   }, [load]);
 
   // Warm the harvesting lists in the background, so those screens and pickers open at once.
