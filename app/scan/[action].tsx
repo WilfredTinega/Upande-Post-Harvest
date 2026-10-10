@@ -687,7 +687,9 @@ export default function ScanScreen() {
                             [session.opl.sales_order, session.opl.delivery_point].filter(Boolean).join(' · ') ||
                             undefined,
                           right: session.opl.total_stems
-                            ? `${session.opl.packed_stems ?? 0}/${session.opl.total_stems}`
+                            ? session.opl.closed && (session.opl.packed_stems ?? 0) < session.opl.total_stems
+                              ? `Under-packed · ${session.opl.packed_stems ?? 0}/${session.opl.total_stems}`
+                              : `${session.opl.packed_stems ?? 0}/${session.opl.total_stems}`
                             : undefined,
                         }
                       : null
@@ -701,20 +703,11 @@ export default function ScanScreen() {
                       title: oplTitle(o.opl, o.customer),
                       lead: o.total_stems ? `${o.packed_stems.toLocaleString()} / ${o.total_stems.toLocaleString()} stems` : undefined,
                       sub: [o.sales_order, o.delivery_point].filter(Boolean).join(' · '),
-                      right: `${pct}% packed`,
-                      // Green: packed; amber: being packed; red: not started.
-                      stripe: pct >= 100 ? 'good' : pct > 0 || o.packed_stems > 0 ? 'partial' : 'bad',
-                      table: o.varieties?.length
-                        ? {
-                            columns: ['Variety', 'Length', 'Bunches', 'Stems'],
-                            rows: o.varieties.map((v) => [
-                              v.item_name,
-                              v.stem_length ?? '-',
-                              `${v.bunches} × ${bunchSize(v.bunch_uom)}`,
-                              `${(v.packed_stems ?? 0).toLocaleString()}/${v.stems.toLocaleString()}`,
-                            ]),
-                          }
-                        : undefined,
+                      // Closed short of the order: an approved under-pack, not a full one.
+                      right: o.closed && pct < 100 ? `Under-packed · ${pct}%` : `${pct}% packed`,
+                      // Green: packed or closed; amber: being packed; red: not started.
+                      stripe: pct >= 100 || o.closed ? 'good' : pct > 0 || o.packed_stems > 0 ? 'partial' : 'bad',
+                      table: o.varieties?.length ? varietyTable(o.varieties) : undefined,
                     };
                   }}
                   onPick={(o) =>
@@ -727,6 +720,7 @@ export default function ScanScreen() {
                         total_stems: o.total_stems,
                         packed_stems: o.packed_stems,
                         delivery_point: o.delivery_point,
+                        closed: o.closed,
                       },
                     })
                   }
@@ -1002,6 +996,27 @@ function planLine(p: LoadingPlan): string {
 /** An order as packers know it: "FLORAMONDO - OPL-2026-26033". */
 function oplTitle(opl: string, customer?: string | null): string {
   return customer ? `${customer} - ${opl}` : opl;
+}
+
+/** An OPL's varieties for the picker, under their box numbers in box order. */
+function varietyTable(varieties: NonNullable<OpenOpl['varieties']>) {
+  const cells = (v: (typeof varieties)[number]) => [
+    v.item_name,
+    v.stem_length ?? '-',
+    `${v.bunches} × ${bunchSize(v.bunch_uom)}`,
+    `${(v.packed_stems ?? 0).toLocaleString()}/${v.stems.toLocaleString()}`,
+  ];
+  const columns = ['Variety', 'Length', 'Bunches', 'Stems'];
+  if (!varieties.some((v) => v.box_id)) return { columns, rows: varieties.map(cells) };
+  const boxes = new Map<number, string[][]>();
+  for (const v of varieties) {
+    const box = v.box_id ?? 0;
+    boxes.set(box, [...(boxes.get(box) ?? []), cells(v)]);
+  }
+  const sections = [...boxes.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([box, rows]) => ({ title: box ? `Box ${box}` : 'No box', rows }));
+  return { columns, rows: varieties.map(cells), sections };
 }
 
 /** "Bunch (12)" → "12"; anything else as it is. */

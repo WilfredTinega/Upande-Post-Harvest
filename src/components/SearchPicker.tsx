@@ -22,7 +22,7 @@ export interface PickerRow {
   /** Short text on the right, e.g. progress. */
   right?: string;
   /** Detail behind a caret on the row, e.g. an order's varieties; the first column takes the rest of the width. */
-  table?: { columns: string[]; rows: string[][] };
+  table?: { columns: string[]; rows: string[][]; sections?: { title: string; rows: string[][] }[] };
 }
 
 interface Props<T> {
@@ -237,12 +237,17 @@ export function SearchPicker<T>({
                         </View>
                         {/* A long order scrolls inside its table; the list scrolls around it. */}
                         <ScrollView style={s.tableBody} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                          {r.table.rows.map((cells, j) => (
-                            <View key={j} style={s.tableRow}>
-                              {cells.map((c, i) => (
-                                <Text key={i} style={[s.td, i === 0 ? s.cellFirst : s.cell]} numberOfLines={2}>
-                                  {c}
-                                </Text>
+                          {(r.table.sections ?? [{ title: '', rows: r.table.rows }]).map((sec, k) => (
+                            <View key={k}>
+                              {sec.title ? <Text style={s.tableSection}>{sec.title}</Text> : null}
+                              {sec.rows.map((cells, j) => (
+                                <View key={j} style={s.tableRow}>
+                                  {cells.map((c, i) => (
+                                    <Text key={i} style={[s.td, i === 0 ? s.cellFirst : s.cell]} numberOfLines={2}>
+                                      {c}
+                                    </Text>
+                                  ))}
+                                </View>
                               ))}
                             </View>
                           ))}
@@ -397,6 +402,16 @@ const s = StyleSheet.create({
     borderTopColor: colors.border,
   },
   tableBody: { maxHeight: 260 },
+  tableSection: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
   tableHead: { borderTopWidth: 0, backgroundColor: colors.surfaceAlt },
   th: {
     fontFamily: fontFamily.semiBold,

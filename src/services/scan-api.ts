@@ -110,6 +110,8 @@ export interface OplInfo extends ScanReply {
   delivery_point?: string | null;
   /** Stems packed so far on the farm's draft Farm Pack List, at the desk too. */
   packed_stems?: number;
+  /** Its Farm Pack List is closed: an approved under-pack when packed_stems is short of total_stems. */
+  closed?: 0 | 1;
   /** Bunches packed per box and spec ("box|variety|bunch_uom|stem_length") by this session's scans. */
   packed_specs?: Record<string, number>;
 }
@@ -179,8 +181,12 @@ export interface OpenOpl {
   /** With `with_stock`: how far it is packed, and stems Available for Sale is short to finish it (0 = enough). */
   pack_pct?: number;
   short_stems?: number;
-  /** What it holds per variety, stem length and bunch size, most stems first. */
+  /** Its Farm Pack List is closed (sent for review, under-pack approved or submitted), packed or not. */
+  closed?: 0 | 1;
+  /** What it holds per box, variety, stem length and bunch size: box 1 first, most stems first within a box. */
   varieties?: {
+    /** The OPL's box number. */
+    box_id?: number;
     item_name: string;
     stem_length: string | null;
     bunch_uom: string;
