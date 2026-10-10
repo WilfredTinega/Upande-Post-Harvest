@@ -11,7 +11,7 @@ export const DEFAULT_FARMS = ['Burguret', 'Turaco', 'Pendekeza'];
 export type FarmsSource = 'server' | 'cache' | 'default';
 
 interface ScanState {
-  /** Scanner config read from storage (farm, processes, cached farms). */
+  /** Scanner config read from storage (farm, last known processes, cached farms). */
   hydrated: boolean;
   loaded: boolean;
   loading: boolean;
@@ -27,20 +27,18 @@ interface ScanState {
   canViewDevices: boolean;
   /** This scanner's station farm, persisted across launches. */
   farm: string;
-  /** Processes this scanner is used for, persisted across launches. */
+  /** The processes the signed-in user may use, set in ERPNext (Post Harvest Settings: Users). */
   processes: ProcessKey[];
   /**
-   * Harvesting asks for the stem length of each bucket. Works whether or not the
-   * varieties are stem-length variants yet: a template is harvested as its
-   * variant for that length, a plain item with the length on the Stock Entry.
+   * Harvesting asks for the stem length of each bucket (Post Harvest Settings). Works
+   * whether or not the varieties are stem-length variants yet: a template is harvested
+   * as its variant for that length, a plain item with the length on the Stock Entry.
    */
   harvestByStemLength: boolean;
 
   hydrate: () => Promise<void>;
   load: () => Promise<void>;
   setFarm: (farm: string) => Promise<void>;
-  setProcesses: (processes: ProcessKey[]) => Promise<void>;
-  setHarvestByStemLength: (on: boolean) => Promise<void>;
 }
 
 function parseList(raw: string | null): string[] {
@@ -66,7 +64,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
   canViewDevices: false,
   farm: '',
   processes: [],
-  // On by default: harvesting records the stem length unless switched off in Settings.
+  // Until the server says otherwise (Post Harvest Settings).
   harvestByStemLength: true,
 
   hydrate: async () => {
@@ -112,6 +110,18 @@ export const useScanStore = create<ScanState>((set, get) => ({
         });
       }
       set({ loaded: true, rejectionReasons: setup.rejection_reasons ?? [], logo: setup.logo || null, canViewDevices: !!setup.can_view_devices });
+      // A server without the access settings yet leaves the last known ones in place.
+      if (setup.processes) {
+        const allowed = setup.processes.filter(isProcessKey);
+        // Nothing ticked for the user in ERPNext: Production.
+        const processes: ProcessKey[] = allowed.length ? allowed : ['production'];
+        set({ processes });
+        storage.set(StorageKeys.processes, JSON.stringify(processes)).catch(() => {});
+      }
+      if (setup.harvest_by_stem_length !== undefined) {
+        set({ harvestByStemLength: !!setup.harvest_by_stem_length });
+        storage.set(StorageKeys.harvestByStemLength, setup.harvest_by_stem_length ? '1' : '0').catch(() => {});
+      }
     } catch (err) {
       set({
         error: userMessage(err, 'Could not load scan setup.'),
@@ -127,15 +137,5 @@ export const useScanStore = create<ScanState>((set, get) => ({
   setFarm: async (farm) => {
     set({ farm });
     await storage.set(StorageKeys.farm, farm);
-  },
-
-  setProcesses: async (processes) => {
-    set({ processes });
-    await storage.set(StorageKeys.processes, JSON.stringify(processes));
-  },
-
-  setHarvestByStemLength: async (on) => {
-    set({ harvestByStemLength: on });
-    await storage.set(StorageKeys.harvestByStemLength, on ? '1' : '0');
   },
 }));

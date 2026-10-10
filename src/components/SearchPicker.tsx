@@ -15,8 +15,8 @@ export interface PickerRow {
   sub?: string;
   /** Bold text at the start of `sub`, e.g. "0 / 50 stems". */
   lead?: string;
-  /** A coloured stripe down the row's left edge: green good, red a problem. */
-  stripe?: 'good' | 'bad';
+  /** A coloured stripe down the row's left edge: green good, amber partway, red a problem. */
+  stripe?: 'good' | 'partial' | 'bad';
   /** A short red line under the row saying what fixes the problem. */
   alert?: string;
   /** Short text on the right, e.g. progress. */
@@ -196,7 +196,7 @@ export function SearchPicker<T>({
                           style={[
                             s.stripe,
                             {
-                              backgroundColor: r.stripe === 'bad' ? colors.error : colors.success,
+                              backgroundColor: r.stripe === 'bad' ? colors.error : r.stripe === 'partial' ? colors.warning : colors.success,
                             },
                           ]}
                         />

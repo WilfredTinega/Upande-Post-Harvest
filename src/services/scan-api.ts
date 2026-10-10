@@ -32,6 +32,41 @@ export async function getMethod<T>(method: string, params: Record<string, unknow
 }
 
 /** Shape shared by every scan endpoint that reports success/failure in the body. */
+/** A harvested bucket's entry, as Edit Harvest shows and edits it. */
+export interface HarvestedBucket {
+  bucket_id: string;
+  stock_entry: string;
+  amended_from?: string | null;
+  posting_date: string;
+  posting_time: string;
+  farm: string;
+  greenhouse: string;
+  item_code: string;
+  /** The variety as picked: a stem-length variant shows as its template. */
+  variety: string;
+  variety_name: string;
+  stem_length: string;
+  bay: string;
+  qty: number;
+  uom?: string;
+  harvester?: string | null;
+  harvester_name?: string | null;
+}
+
+export type HarvestedBucketReply = ScanReply &
+  Partial<HarvestedBucket> & { unchanged?: boolean; previous?: string };
+
+export interface EditHarvestArgs {
+  farm: string;
+  bucket_id: string;
+  stock_entry: string;
+  greenhouse: string;
+  item_code: string;
+  stem_length: string;
+  bay: string;
+  quantity: number;
+}
+
 export interface ScanReply {
   success: boolean;
   error?: string;
@@ -48,6 +83,10 @@ export interface ScanSetup {
   can_view_devices?: boolean;
   /** The site's logo path (e.g. /private/files/x.jpeg), shown behind the home greeting. */
   logo?: string | null;
+  /** The processes this user may use (Post Harvest Settings: Users); Production when none is ticked. */
+  processes?: string[];
+  /** Post Harvest Settings: harvesting asks for each bucket's stem length. */
+  harvest_by_stem_length?: boolean;
 }
 
 export interface Employee {
@@ -277,7 +316,15 @@ export interface RejectsDay extends ScanReply {
   /** Submitted plus still on today's draft. */
   rejected_stems: number;
   draft: string | null;
-  lines: { row: string; item_code: string; item_name: string; stem_length?: string | null; stems: number; submitted: boolean }[];
+  lines: {
+    row: string;
+    item_code: string;
+    item_name: string;
+    stem_length?: string | null;
+    stems: number;
+    reason?: string | null;
+    submitted: boolean;
+  }[];
 }
 
 /** A variety on the packhouse floor and how many stems of it are there. */
@@ -461,6 +508,12 @@ export const scanApi = {
   recentVarieties: (greenhouse: string, byStemLength = false) =>
     callMethod<string[]>('harvesting.get_recent_varieties', { greenhouse, by_stem_length: byStemLength ? 1 : 0 }),
   harvest: (args: HarvestArgs) => callMethod<ScanReply>('harvesting.harvest', { ...args }),
+  /** A harvested bucket that is not yet received: what its harvest entry holds (Edit Harvest). */
+  harvestedBucket: (farm: string, bucket_id: string) =>
+    callMethod<HarvestedBucketReply>('harvesting.get_harvested_bucket', { farm, bucket_id }),
+  /** Replace the bucket's harvest entry with an amendment holding these values. */
+  editHarvestedBucket: (args: EditHarvestArgs) =>
+    callMethod<HarvestedBucketReply>('harvesting.edit_harvested_bucket', { ...args }),
   /** The Field Rejects list, recorded together: all of it or, on an error, none. */
   submitFieldRejects: (farm: string, rows: FieldRejectLine[]) =>
     callMethod<ScanReply & { entries?: number; stems?: number; row?: number }>('harvesting.submit_field_rejects', {
@@ -491,8 +544,13 @@ export const scanApi = {
   packhouseBalances: (farm: string, txt = '') =>
     callMethod<FloorVariety[]>('graded_rejects.packhouse_balances', { farm, txt }),
   /** Add a line to today's draft Graded Rejects entry (saved, not submitted). */
-  addReject: (farm: string, item_code: string, stems: number) =>
-    callMethod<ScanReply & { qty?: number; variety?: string }>('graded_rejects.add_reject', { farm, item_code, stems }),
+  addReject: (farm: string, item_code: string, stems: number, reason: string) =>
+    callMethod<ScanReply & { qty?: number; variety?: string; reason?: string }>('graded_rejects.add_reject', {
+      farm,
+      item_code,
+      stems,
+      reason,
+    }),
   removeReject: (farm: string, row: string) => callMethod<ScanReply>('graded_rejects.remove_reject', { farm, row }),
   submitRejects: (farm: string) => callMethod<ScanReply & { qty?: number }>('graded_rejects.submit_rejects', { farm }),
   getRejects: (farm: string) => callMethod<RejectsDay>('graded_rejects.get_rejects', { farm }),

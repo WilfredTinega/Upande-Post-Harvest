@@ -1,7 +1,7 @@
 import type { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { useFieldRejectsStore } from '@/src/stores/fieldRejectsStore';
-import { scanApi, type Employee, type FieldRejectLine, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
+import { scanApi, type Employee, type FieldRejectLine, type HarvestedBucket, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
 import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseGraderQr, parseTruck } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
 import { humanText, userMessage } from '@/src/services/user-message';
@@ -51,6 +51,8 @@ export interface ScanSession {
   deliveryPoint: string | null;
   /** Delivery: bumped after each delivered box, so its list reloads. */
   deliveryVersion: number;
+  /** Edit Harvest: the scanned bucket's harvest entry, as loaded. */
+  harvestEdit: HarvestedBucket | null;
 }
 
 export const emptySession = (farm: string): ScanSession => ({
@@ -73,6 +75,7 @@ export const emptySession = (farm: string): ScanSession => ({
   rejectsVersion: 0,
   deliveryPoint: null,
   deliveryVersion: 0,
+  harvestEdit: null,
 });
 
 /** Session inputs shown above the scan field. */
@@ -84,7 +87,7 @@ export type Requirement =
   | 'truck' // scanned as the first code
   | 'undispatchReason'
   | 'rejectionReason'
-  | 'fieldRejectReason' // picked from the Rejection Reasons (field rejects)
+  | 'fieldRejectReason' // picked from the Rejection Reasons (field and graded rejects)
   | 'plan' // truck label scanned first, opens the truck's Loading Plan
   | 'truckPick' // like 'plan', or picked from the open Loading Plans
   | 'deliveryPoint' // Delivery: picked from the points with boxes on their way
@@ -99,6 +102,7 @@ export type Requirement =
 export type ActionKey =
   | 'harvesting'
   | 'field-rejects'
+  | 'edit-harvest'
   | 'receiving'
   | 'receiving-quarantined'
   | 'receiving-out'
@@ -147,6 +151,12 @@ export interface ActionDef {
   startsPlan?: boolean;
   /** The variety picker lists only what was harvested into the greenhouse today. */
   harvestedVarietiesOnly?: boolean;
+  /** Scan first: the fields and the submit button show once the scan has loaded a record. */
+  formAfterScan?: boolean;
+  /** Always pick the stem length, whatever the Harvest by stem length setting. */
+  alwaysStemLength?: boolean;
+  /** Label of the stems field. */
+  stemsLabel?: string;
   /** Scan with the phone camera only (no field for a hardware scanner or typing): the button's label. */
   cameraOnly?: string;
   /** Loading Plan panel under the scan field: build the plan, load the truck, or dispatch it. */
@@ -346,7 +356,7 @@ export async function dispatchPlan(s: ScanSession, update: Update): Promise<Outc
 // ── definitions ───────────────────────────────────────────────────────────
 
 export const ACTIONS: ActionDef[] = [
-  // Production: harvesting → receiving cold store
+  // Production: harvesting → field rejects → edit harvest
   {
     key: 'harvesting',
     label: 'Harvesting',
@@ -450,17 +460,106 @@ export const ACTIONS: ActionDef[] = [
       },
     },
   },
-  receivingAction('receiving', 'Receiving', 'Receiving', 'Harvest → receiving cold store', 'enter-outline', PRODUCTION),
+
+  {
+    key: 'edit-harvest',
+    label: 'Edit Harvest',
+    description: 'Correct a harvested bucket before it is received',
+    group: PRODUCTION,
+    icon: 'create-outline',
+    needsFarm: true,
+    requirements: ['greenhouse', 'variety', 'stemLength', 'bed', 'stems'],
+    formAfterScan: true,
+    alwaysStemLength: true,
+    stemsLabel: 'Stems in bucket',
+    prompt: (s) => (s.harvestEdit ? `Change ${s.harvestEdit.bucket_id} and tap Save changes` : 'Scan the bucket QR'),
+    handle: (code, s, update) =>
+      run(async () => {
+        const bucketId = parseBucketId(code);
+        if (!bucketId) return warn('Please scan a valid Bucket QR Code');
+        const r = await scanApi.harvestedBucket(s.farm, bucketId);
+        if (!r.success || !r.stock_entry) {
+          return rejected(r, [
+            ['past harvesting', 'warning', `${bucketId} is already received`],
+            ['not harvested', 'warning', `${bucketId} is not harvested`],
+            ['harvested at', 'warning'],
+            ['not found', 'error'],
+          ]);
+        }
+        const entry = r as HarvestedBucket;
+        update({
+          harvestEdit: entry,
+          greenhouse: entry.greenhouse,
+          variety: entry.variety,
+          stemLength: entry.stem_length || '',
+          bed: entry.bay || '',
+          stems: String(entry.qty),
+        });
+        return info(`${bucketId} loaded`, `${entry.variety_name}${entry.stem_length ? ` ${entry.stem_length}` : ''} · ${entry.qty} stems\n${entry.greenhouse}`);
+      }),
+    submit: {
+      label: 'Save changes',
+      icon: 'save-outline',
+      ready: (s) => !!(s.harvestEdit && s.greenhouse && s.variety && stemCount(s)),
+      confirm: (s) => {
+        const e = s.harvestEdit;
+        if (!e) return null;
+        const changes = [
+          e.greenhouse !== s.greenhouse ? `Greenhouse: ${e.greenhouse} → ${s.greenhouse}` : '',
+          e.variety !== s.variety ? `Variety: ${e.variety_name} → ${s.variety}` : '',
+          (e.stem_length || '') !== s.stemLength ? `Stem length: ${e.stem_length || '-'} → ${s.stemLength || '-'}` : '',
+          (e.bay || '') !== s.bed.trim() ? `Bed: ${e.bay || '-'} → ${s.bed.trim() || '-'}` : '',
+          e.qty !== stemCount(s) ? `Stems: ${e.qty} → ${stemCount(s)}` : '',
+        ].filter(Boolean);
+        return changes.length ? `${e.bucket_id}\n${changes.join('\n')}` : null;
+      },
+      run: async (s, update) =>
+        run(async () => {
+          const e = s.harvestEdit;
+          if (!e) return warn('Scan the bucket QR first');
+          if (!s.greenhouse) return warn('Select the greenhouse first');
+          if (!s.variety) return warn('Select the variety first');
+          if (!stemCount(s)) return warn('Enter the number of stems');
+          const r = await scanApi.editHarvestedBucket({
+            farm: s.farm,
+            bucket_id: e.bucket_id,
+            stock_entry: e.stock_entry,
+            greenhouse: s.greenhouse,
+            item_code: s.variety,
+            stem_length: s.stemLength,
+            bay: s.bed.trim(),
+            quantity: stemCount(s),
+          });
+          if (!r.success) {
+            return rejected(r, [
+              ['changed since it was scanned', 'warning', 'Scan the bucket again'],
+              ['past harvesting', 'warning', `${e.bucket_id} is already received`],
+              ['needed in warehouse', 'error', `Stems already issued from ${e.greenhouse}`],
+              ['cannot hold more', 'warning', 'Too many stems for one bucket'],
+              ['stem length', 'warning'],
+              ['has no', 'error'],
+            ]);
+          }
+          update({ harvestEdit: null, greenhouse: '', variety: '', stemLength: '', bed: '', stems: '' });
+          if (r.unchanged) return info('Nothing changed', e.bucket_id);
+          return ok(
+            `${e.bucket_id} updated`,
+            `${r.variety_name ?? r.variety}${r.stem_length ? ` ${r.stem_length}` : ''} · ${r.qty} stems\n${r.greenhouse}${r.bay ? ` · bed ${r.bay}` : ''}\n${r.stock_entry}`,
+          );
+        }),
+    },
+  },
+
+  // Packhouse: receiving → receiving quarantined → receiving out → ungraded discard → grading → packing → move to shop
+  receivingAction('receiving', 'Receiving', 'Receiving', 'Harvest → receiving cold store', 'enter-outline', PACKHOUSE),
   receivingAction(
     'receiving-quarantined',
     'Receiving Quarantined',
     'Receiving Quarantined',
     'Harvest → quarantine store',
     'shield-outline',
-    PRODUCTION,
+    PACKHOUSE,
   ),
-
-  // Packhouse: receiving out → ungraded discard → grading → packing
   receivingAction('receiving-out', 'Receiving Out', 'Receiving Out', 'Cold store → packhouse store', 'exit-outline', PACKHOUSE),
   {
     key: 'ungraded-discard',
@@ -565,7 +664,7 @@ export const ACTIONS: ActionDef[] = [
       }),
   },
 
-  // Packhouse (cont.): packing → packing reject
+  // Packhouse (cont.): packing → move to shop
   {
     key: 'packing',
     label: 'Packing',
@@ -606,6 +705,30 @@ export const ACTIONS: ActionDef[] = [
           ['unknown bunch size', 'warning'],
           ['farm pack list already submitted', 'warning', 'Pack List Already Submitted!'],
           ['walk in shop', 'warning'],
+        ]);
+      }),
+  },
+  {
+    key: 'local-sale',
+    label: 'Move to Shop',
+    description: 'Move day 4+ bunches to the shop',
+    group: PACKHOUSE,
+    icon: 'storefront-outline',
+    needsFarm: true,
+    requirements: [],
+    prompt: () => 'Scan a bunch QR',
+    handle: (code, s) =>
+      run(async () => {
+        const p = bunchPayload(code);
+        if (!p) return warn('Invalid Bunch QR Code');
+        const r = await scanApi.localSale(p.json, s.farm);
+        if (r.success) return ok(r.already_in_shop ? `${p.bunch.variety} already in the shop` : `${p.bunch.variety} → shop (day ${r.age_days})`, r.message || r.bunch_id);
+        return rejected(r, [
+          ['already moved', 'warning'],
+          ['not yet day', 'warning', 'Too fresh for the shop'],
+          ['already packed', 'error', 'Bunch already packed'],
+          ['no graded entry', 'error', 'Bunch not graded'],
+          ['insufficient stock', 'error'],
         ]);
       }),
   },
@@ -694,31 +817,7 @@ export const ACTIONS: ActionDef[] = [
       }),
   },
 
-  // Shop: day 4 flowers → shop → walk-in shop / vase; shop discard
-  {
-    key: 'local-sale',
-    label: 'Local Sale',
-    description: 'Move day 4 flowers to the shop',
-    group: SHOP,
-    icon: 'storefront-outline',
-    needsFarm: true,
-    requirements: [],
-    prompt: () => 'Scan a bunch QR',
-    handle: (code, s) =>
-      run(async () => {
-        const p = bunchPayload(code);
-        if (!p) return warn('Invalid Bunch QR Code');
-        const r = await scanApi.localSale(p.json, s.farm);
-        if (r.success) return ok(r.already_in_shop ? `${p.bunch.variety} already in the shop` : `${p.bunch.variety} → shop (day ${r.age_days})`, r.message || r.bunch_id);
-        return rejected(r, [
-          ['already moved', 'warning'],
-          ['not yet day', 'warning', 'Too fresh for the shop'],
-          ['already packed', 'error', 'Bunch already packed'],
-          ['no graded entry', 'error', 'Bunch not graded'],
-          ['insufficient stock', 'error'],
-        ]);
-      }),
-  },
+  // Shop: shop → walk-in shop / vase; shop discard
   {
     key: 'walk-in-shop',
     label: 'Walk In Shop',
@@ -808,32 +907,43 @@ export const ACTIONS: ActionDef[] = [
     group: PACKHOUSE,
     icon: 'remove-circle-outline',
     needsFarm: true,
-    requirements: ['floorVariety', 'stems'],
+    requirements: ['floorVariety', 'fieldRejectReason', 'stems'],
     panel: 'rejects',
     prompt: (s) =>
-      !s.variety ? 'Select the variety' : !stemCount(s) ? 'Enter the stems rejected' : `Add ${stemCount(s)} rejected stems`,
+      !s.variety
+        ? 'Select the variety'
+        : !s.rejectionReason
+          ? 'Choose the rejection reason'
+          : !stemCount(s)
+            ? 'Enter the stems rejected'
+            : `Add ${stemCount(s)} rejected stems`,
     handle: async () => warn('Nothing to scan here', 'Choose the variety, enter the stems and tap Add to rejects'),
     submit: {
       label: 'Add to rejects',
       icon: 'add-circle-outline',
+      ready: (s) => !!(s.variety && s.rejectionReason && stemCount(s)),
       confirm: (s) =>
-        s.variety && stemCount(s) ? `Add ${stemCount(s)} stems of ${s.variety} to today's rejects?` : null,
+        s.variety && s.rejectionReason && stemCount(s)
+          ? `Add ${stemCount(s)} stems of ${s.variety} (${s.rejectionReason}) to today's rejects?`
+          : null,
       // Saved on today's draft entry; the panel below submits the day's rejects in one go.
       run: (s, update) =>
         run(async () => {
           if (!s.variety) return warn('Select the variety first');
+          if (!s.rejectionReason) return warn('Choose the rejection reason first');
           if (!stemCount(s)) return warn('Enter the number of stems rejected');
           if (s.varietyBalance !== null && stemCount(s) > s.varietyBalance) {
             return warn(`Only ${s.varietyBalance} stems on the floor`, 'Enter no more than the balance');
           }
-          const r = await scanApi.addReject(s.farm, s.variety, stemCount(s));
+          const r = await scanApi.addReject(s.farm, s.variety, stemCount(s), s.rejectionReason);
           if (r.success) {
             update({
               stems: '',
+              rejectionReason: '',
               varietyBalance: s.varietyBalance === null ? null : Math.max(s.varietyBalance - (r.qty ?? 0), 0),
               rejectsVersion: s.rejectsVersion + 1,
             });
-            return ok(`${r.qty} stems added to rejects`, `${r.variety} · not yet submitted`);
+            return ok(`${r.qty} stems added to rejects`, `${r.variety} · ${r.reason || s.rejectionReason} · not yet submitted`);
           }
           return rejected(r, [['left on the floor', 'error', 'Not enough stems on the floor']]);
         }),
@@ -880,7 +990,7 @@ export function getAction(key: string | undefined): ActionDef | undefined {
   return ACTIONS.find((a) => a.key === key);
 }
 
-/** The actions of the given processes (all of them when none is chosen). */
+/** The actions of the given processes. */
 export function actionsFor(processes: ProcessKey[]): ActionDef[] {
-  return processes.length ? ACTIONS.filter((a) => processes.includes(a.group)) : ACTIONS;
+  return ACTIONS.filter((a) => processes.includes(a.group));
 }

@@ -49,22 +49,22 @@ export default function StartScreen() {
   // Warm the harvesting lists in the background, so those screens and pickers open at once.
   const harvestByStemLength = useScanStore((s) => s.harvestByStemLength);
   // Harvesting and field rejects belong to Production.
-  const harvests = !processes.length || processes.includes('production');
+  const harvests = processes.includes('production');
   useEffect(() => {
     if (farm && harvests) warmHarvestLists(farm, harvestByStemLength);
   }, [farm, harvests, harvestByStemLength]);
-  const packs = !processes.length || processes.includes('packhouse');
+  const packs = processes.includes('packhouse');
   useEffect(() => {
     if (farm && packs) warmPackhouseLists(farm);
   }, [farm, packs]);
 
-  // Every chosen process; all of them until some are chosen.
-  const shown = PROCESSES.filter((p) => !processes.length || processes.includes(p.key));
+  // The user's processes (Post Harvest Settings: Users).
+  const shown = PROCESSES.filter((p) => processes.includes(p.key));
   const [page, setPage] = useState(0);
   const pager = useRef<FlatList<ProcessDef>>(null);
   const current = shown[Math.min(page, shown.length - 1)] ?? PROCESSES[0];
 
-  // Back to the first page when the chosen processes change.
+  // Back to the first page when the user's processes change.
   const shownKey = shown.map((p) => p.key).join(',');
   const [pageKey, setPageKey] = useState(shownKey);
   if (pageKey !== shownKey) {
@@ -94,19 +94,19 @@ export default function StartScreen() {
   };
 
   const unknownFarm = !!farm && farmsSource === 'server' && !farms.includes(farm);
-  const needsSetup = !farm || !processes.length || unknownFarm;
+  const needsSetup = !farm || unknownFarm;
 
-  // Process and farm are chosen in Settings: a scanner without them goes
-  // straight there after sign-in, once.
+  // The farm is chosen in Settings: a scanner without one goes straight there
+  // after sign-in, once.
   const scannerHydrated = useScanStore((s) => s.hydrated);
   const sentToSetup = useRef(false);
   useEffect(() => {
     if (!scannerHydrated || sentToSetup.current) return;
-    if (!farm || !processes.length) {
+    if (!farm) {
       sentToSetup.current = true;
       router.push('/settings');
     }
-  }, [scannerHydrated, farm, processes.length, router]);
+  }, [scannerHydrated, farm, router]);
 
   const top = (
     <View>
@@ -115,11 +115,9 @@ export default function StartScreen() {
           <Alert tone="warn">
             {unknownFarm
               ? `${farm} is not set up on this server. Choose another farm.`
-              : !farm
-                ? 'Choose the farm before scanning.'
-                : 'Choose the process.'}
+              : 'Choose the farm before scanning.'}
           </Alert>
-          <Button label="Choose process and farm" iconLeft="options-outline" onPress={() => router.push('/settings')} />
+          <Button label="Choose farm" iconLeft="options-outline" onPress={() => router.push('/settings')} />
         </View>
       ) : null}
 
