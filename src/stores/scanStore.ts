@@ -98,14 +98,16 @@ export const useScanStore = create<ScanState>((set, get) => ({
     await get().hydrate();
     try {
       const setup = await scanApi.setup(await getInstallId());
-      // Logged out from Post Harvest Settings (this device, or all of them): sign out and
-      // forget the saved password, so only a typed one gets back in.
+      // Logged out from Post Harvest Settings (this device, or all of them): back to the
+      // login page. The server, email and saved password stay; the new mark is taken as
+      // seen first, so signing in again isn't logged straight back out.
       if (setup.logout_mark !== undefined) {
         const seen = await storage.get(StorageKeys.logoutMark);
         if (seen === null || seen === LOGOUT_MARK_PENDING) {
           await storage.set(StorageKeys.logoutMark, setup.logout_mark);
         } else if (seen !== setup.logout_mark) {
-          await useAuthStore.getState().forgetDevice();
+          await storage.set(StorageKeys.logoutMark, setup.logout_mark);
+          await useAuthStore.getState().logout();
           return;
         }
       }

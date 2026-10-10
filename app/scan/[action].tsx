@@ -137,11 +137,12 @@ export default function ScanScreen() {
 
   // Work is processed one step at a time, in order, so fast trigger pulls
   // queue up instead of being dropped or racing each other.
+  // Codes being processed right now: a parallel scan of one already on its way is dropped,
+  // so a bunch scanned twice in a row can't be sent twice.
+  const inFlight = useRef<Set<string>>(new Set());
   const enqueue = useCallback(
-    (code: string, work: () => Promise<Outcome>) => {
-      setPending((n) => n + 1);
-      queue.current = queue.current.then(async () => {
-        const outcome = await work();
+    (code: string, work: () => Promise<Outcome>, parallel = false) => {
+      const finish = (outcome: Outcome) => {
         if (outcome.silent) {
           // No sound for this outcome.
         } else if (outcome.tone === 'success' || outcome.tone === 'info') audio.beep();
@@ -168,7 +169,18 @@ export default function ScanScreen() {
         setPending((n) => n - 1);
         // Harvesting: each bucket needs its own stem count, so go straight to it.
         if (stemsPerBucket && outcome.counts && !sessionRef.current.stems) stemsRef.current?.focus();
-      });
+      };
+      if (parallel) {
+        if (inFlight.current.has(code)) return;
+        inFlight.current.add(code);
+        setPending((n) => n + 1);
+        work()
+          .then(finish)
+          .finally(() => inFlight.current.delete(code));
+        return;
+      }
+      setPending((n) => n + 1);
+      queue.current = queue.current.then(async () => finish(await work()));
     },
     [stemsPerBucket, notify, refocus],
   );
@@ -181,7 +193,11 @@ export default function ScanScreen() {
   const onScan = useCallback(
     (code: string) => {
       if (!action) return;
-      enqueue(code, () => action.handle(code, sessionRef.current, update));
+      enqueue(
+        code,
+        () => action.handle(code, sessionRef.current, update),
+        !!action.parallel?.(code, sessionRef.current),
+      );
     },
     [action, enqueue, update],
   );
