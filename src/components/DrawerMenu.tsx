@@ -163,7 +163,7 @@ export function DrawerMenu() {
                 <View style={{ flex: 1 }}>
                   <Text style={s.stationFarm}>{farm || 'No farm chosen'}</Text>
                   <Text style={s.stationSub} numberOfLines={1}>
-                    {processes.length ? processLabel(processes) : 'All processes'}
+                    {processLabel(processes)}
                   </Text>
                 </View>
                 <Text style={s.change}>Change</Text>

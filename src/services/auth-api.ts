@@ -51,7 +51,7 @@ export async function loginToServer(bareUrl: string, email: string, password: st
     throw new Error('Invalid email or password.');
   }
   if (res.status === 404) {
-    throw new Error('This server does not support the Post Harvest app.');
+    throw new Error('This server does not support the Upande Post Harvest app.');
   }
   if (res.status < 200 || res.status >= 300) {
     throw new Error(humanText(extractError(res.data)) ?? 'Could not sign in. Try again.');

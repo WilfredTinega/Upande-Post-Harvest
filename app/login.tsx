@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, shadow, spacing } from '@/src/theme';
+import { KeyboardScrollView } from '@/src/components/KeyboardScrollView';
 import { useAuthStore } from '@/src/stores/authStore';
 import { storage, StorageKeys } from '@/src/services/storage';
 import * as Biometric from '@/src/services/biometric';
@@ -119,13 +119,10 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
-      <KeyboardAwareScrollView
+      <KeyboardScrollView
         contentContainerStyle={s.scroll}
         onLayout={(e) => setViewHeight(e.nativeEvent.layout.height)}
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        enableOnAndroid
-        extraScrollHeight={40}
       >
         <View style={{ marginTop: centreOffset }} onLayout={(e) => setFormHeight(e.nativeEvent.layout.height)}>
           <View style={s.hero}>
@@ -266,7 +263,7 @@ export default function LoginScreen() {
             </View>
           ) : null}
         </View>
-      </KeyboardAwareScrollView>
+      </KeyboardScrollView>
     </SafeAreaView>
   );
 }
@@ -282,7 +279,7 @@ function bareAddress(url: string): string {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   // No justifyContent: 'center' here -- centering a flexGrow container fights
-  // KeyboardAwareScrollView's scroll-to-focused-input math and was leaving the
+  // the keyboard scroll view's scroll-to-focused-input math and was leaving the
   // password field / Sign in button hidden behind the keyboard. The form is
   // centred with a measured top margin instead.
   scroll: {

@@ -9,12 +9,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { useSheetLayout } from '@/src/components/useSheetLayout';
 
 /** Rows shown before searching; the rest are found by search. */
 const MAX_ROWS = 20;
+/** Up to this many options are listed without a search box. */
+const FEW_OPTIONS = 8;
 
 export interface DropdownOption {
   label: string;
@@ -50,9 +52,11 @@ export function Dropdown({
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const insets = useSafeAreaInsets();
+  const { overlayRef, onOverlayLayout, sheetStyle } = useSheetLayout(open);
 
   const selected = options.find((o) => o.value === value);
+  // A short list needs no search box.
+  const showSearch = searchable && options.length > FEW_OPTIONS;
 
   const filtered = useMemo(() => {
     if (!query.trim()) return options.slice(0, MAX_ROWS);
@@ -77,10 +81,10 @@ export function Dropdown({
       </TouchableOpacity>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <View style={s.overlay}>
+        <View ref={overlayRef} style={s.overlay} onLayout={onOverlayLayout}>
           {/* Tapping outside the sheet closes it. A sibling, not a wrapper, so the list still scrolls. */}
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close" />
-          <View style={[s.sheet, { paddingBottom: insets.bottom }]}>
+          <View style={[s.sheet, sheetStyle]}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>{label || 'Select'}</Text>
               <TouchableOpacity onPress={() => setOpen(false)} style={s.closeBtn} activeOpacity={0.7}>
@@ -88,7 +92,7 @@ export function Dropdown({
               </TouchableOpacity>
             </View>
 
-            {searchable ? (
+            {showSearch ? (
               <View style={s.searchWrap}>
                 <Ionicons name="search" size={16} color={colors.textMuted} />
                 <TextInput
@@ -104,6 +108,7 @@ export function Dropdown({
             ) : null}
 
             <FlatList
+              style={s.list}
               data={filtered}
               keyExtractor={(it) => it.value}
               keyboardShouldPersistTaps="handled"
@@ -169,11 +174,10 @@ const s = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    // Fixed, so the sheet doesn't jump between loading and showing results.
-    height: '75%',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
+  list: { flexShrink: 1 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   sheetTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.text },
   closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surfaceAlt, justifyContent: 'center', alignItems: 'center' },

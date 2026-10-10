@@ -90,6 +90,7 @@ export function GradedRejectsPanel({ farm, version }: Props) {
             <Text style={s.lineName} numberOfLines={1}>
               {l.item_name}
               {l.stem_length ? <Text style={s.bold}>{`  ${l.stem_length}`}</Text> : null}
+              {l.reason ? <Text style={s.reason}>{`  · ${l.reason}`}</Text> : null}
             </Text>
             <Text style={s.lineStems}>{l.stems.toLocaleString()}</Text>
             {l.submitted ? (
@@ -141,6 +142,7 @@ const s = StyleSheet.create({
     borderTopColor: colors.border,
   },
   lineName: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.text },
+  reason: { color: colors.textMuted },
   bold: { fontFamily: fontFamily.bold },
   lineStems: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
   empty: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.textMuted, paddingVertical: spacing.sm },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { dialog } from '@/src/components/AppDialog';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -16,12 +16,21 @@ import { SkeletonBox } from '@/src/components/Skeleton';
 import { BlockerModal, type BlockerTone } from '@/src/components/BlockerModal';
 import { useToast } from '@/src/components/Toast';
 import { GradedRejectsPanel } from '@/src/components/GradedRejectsPanel';
+import { FieldRejectsList } from '@/src/components/FieldRejectsList';
+import { NewLoadingPlanForm } from '@/src/components/NewLoadingPlanForm';
 import { DeliveryPanel } from '@/src/components/DeliveryPanel';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
 import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
-import { dispatchPlan, emptySession, getAction, type Outcome, type ScanSession } from '@/src/scan/actions';
+import {
+  dispatchPlan,
+  emptySession,
+  getAction,
+  startLoadingPlan,
+  type Outcome,
+  type ScanSession,
+} from '@/src/scan/actions';
 import {
   cachedList,
   employeesKey,
@@ -30,7 +39,7 @@ import {
   prefetchList,
   varietiesKey,
 } from '@/src/services/list-cache';
-import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplInfo, type OplLine, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
@@ -42,6 +51,8 @@ const TOP_FIELDS: string[] = ['greenhouse', 'grader', 'packer'];
 
 /** A successful scan's toast stays up this long. */
 const SUCCESS_TOAST_MS = 1000;
+/** A picker sheet closes before a field it hands focus to can open the keyboard. */
+const FOCUS_AFTER_PICK_MS = 250;
 
 interface HarvestLookups {
   loading: boolean;
@@ -89,12 +100,17 @@ export default function ScanScreen() {
 
   const scanRef = useRef<ScanFieldHandle>(null);
   const stemsRef = useRef<TextInput>(null);
+  const bedRef = useRef<TextInput>(null);
+  const undispatchRef = useRef<TextInput>(null);
+  // Set further down, once the screen's fields are known: focus the next field to fill in.
+  const focusNextRef = useRef<() => void>(() => {});
+  const focusNext = useCallback(() => focusNextRef.current(), []);
   const queue = useRef<Promise<void>>(Promise.resolve());
 
   const refocus = useCallback(() => focusWhenReady(scanRef), []);
 
   // Refocus whenever the screen comes back (e.g. from the camera or a picker).
-  useFocusEffect(refocus);
+  useFocusEffect(focusNext);
 
   const update = useCallback((patch: Partial<ScanSession>) => {
     // Keep the ref in step immediately so a queued scan sees the new session.
@@ -104,7 +120,7 @@ export default function ScanScreen() {
 
   const setAndRefocus = (patch: Partial<ScanSession>) => {
     update(patch);
-    refocus();
+    focusNext();
   };
 
   // The station can be changed from Settings while this screen is open.
@@ -113,6 +129,10 @@ export default function ScanScreen() {
   }, [farm, update]);
 
   const req = useMemo(() => action?.requirements ?? [], [action]);
+  // New Loading Plan opens on the form; Load & Dispatch shows it from its button.
+  const [showNewPlan, setShowNewPlan] = useState(!!action?.startsPlan);
+  // While the new plan form is open there is nothing to scan.
+  const creatingPlan = req.includes('truckPick') && showNewPlan;
   const stemsPerBucket = req.includes('stems');
 
   // Work is processed one step at a time, in order, so fast trigger pulls
@@ -129,7 +149,11 @@ export default function ScanScreen() {
           const text = outcome.detail ? `${outcome.title}\n${outcome.detail}` : outcome.title;
           notify(text, outcome.tone, SUCCESS_TOAST_MS, 'center');
         } else {
-          setBlocker({ tone: outcome.tone, title: outcome.title, detail: outcome.detail });
+          setBlocker({
+            tone: outcome.tone,
+            title: outcome.title,
+            detail: outcome.detail,
+          });
         }
         setPending((n) => n - 1);
         // Harvesting: each bucket needs its own stem count, so go straight to it.
@@ -156,8 +180,9 @@ export default function ScanScreen() {
   const [harvest, setHarvest] = useState<HarvestLookups>(NO_LOOKUPS);
   // Bumped by "Try again" on a failed lookup, to load the lists again.
   const [lookupRetries, setLookupRetries] = useState(0);
-  // Greenhouses and varieties: Harvesting; varieties alone: Graded Rejects.
-  const needsHarvestLookups = req.includes('greenhouse') || req.includes('variety');
+  // Greenhouses and varieties: Harvesting; rejection reasons: Field and Graded Rejects.
+  const needsHarvestLookups =
+    req.includes('greenhouse') || req.includes('variety') || req.includes('fieldRejectReason');
   // Who or where the whole session is for (greenhouse, grader, packer) is picked once in
   // the top row, and those screens show the scan count in place of the prompt.
   const topFields = req.filter((r) => TOP_FIELDS.includes(r));
@@ -166,7 +191,31 @@ export default function ScanScreen() {
   const awaitingGrader = req.includes('grader') && !session.grader;
   // Harvesting by stem length (Settings): varieties are listed once each, plus a length to pick.
   const harvestByStemLength = useScanStore((st) => st.harvestByStemLength);
-  const stemMode = harvestByStemLength && req.includes('stemLength');
+  const stemMode = (harvestByStemLength || !!action?.alwaysStemLength) && req.includes('stemLength');
+  // Edit Harvest: nothing to fill in until a bucket is scanned.
+  const formOpen = !action?.formAfterScan || !!session.harvestEdit;
+
+  // Once every pick above it is made, the next empty typed field takes focus with the
+  // keyboard open; with nothing left to type, the scan field does.
+  useLayoutEffect(() => {
+    focusNextRef.current = () => {
+      const cur = sessionRef.current;
+      const picked =
+        (!req.includes('greenhouse') || !!cur.greenhouse) &&
+        (!(req.includes('variety') || req.includes('floorVariety')) || !!cur.variety) &&
+        (!stemMode || !!cur.stemLength) &&
+        (!req.includes('harvester') || !!cur.harvester) &&
+        (!req.includes('fieldRejectReason') || !!cur.rejectionReason);
+      let next: RefObject<TextInput | null> | null = null;
+      if (formOpen && picked && req.includes('bed') && !cur.bed.trim()) next = bedRef;
+      else if (formOpen && picked && req.includes('stems') && !cur.stems) next = stemsRef;
+      else if (req.includes('undispatchReason') && !cur.undispatchReason.trim()) next = undispatchRef;
+      if (!next) return refocus();
+      const input = next;
+      // After the picker sheet has closed, or the focus is dropped.
+      setTimeout(() => input.current?.focus(), FOCUS_AFTER_PICK_MS);
+    };
+  }, [req, stemMode, formOpen, refocus]);
 
   const loadHarvest = useCallback(() => {
     if (!needsHarvestLookups || !farm) return;
@@ -216,17 +265,21 @@ export default function ScanScreen() {
 
   // The first 20 varieties, the greenhouse's recent harvests on top; the rest are found by search.
   const [pickedVariety, setPickedVariety] = useState<Variety | null>(null);
+  const harvestedOnly = !!action?.harvestedVarietiesOnly;
   const loadVarieties = useCallback(
-    (query: string) => scanApi.searchVarieties(query, session.greenhouse, stemMode),
-    [session.greenhouse, stemMode],
+    (query: string) =>
+      harvestedOnly
+        ? scanApi.harvestedVarieties(farm, session.greenhouse, query)
+        : scanApi.searchVarieties(query, session.greenhouse, stemMode),
+    [harvestedOnly, farm, session.greenhouse, stemMode],
   );
   // Warm the lists the pickers will open on, so they show at once.
   useEffect(() => {
-    if (!needsHarvestLookups || !session.greenhouse) return;
+    if (!needsHarvestLookups || !session.greenhouse || harvestedOnly) return;
     prefetchList(`${varietiesKey(session.greenhouse, stemMode)}|`, () =>
       scanApi.searchVarieties('', session.greenhouse, stemMode),
     );
-  }, [needsHarvestLookups, session.greenhouse, stemMode]);
+  }, [needsHarvestLookups, session.greenhouse, stemMode, harvestedOnly]);
   useEffect(() => {
     if (!req.includes('harvester') || !farm) return;
     prefetchList(employeesKey(farm, 'harvester'), () => scanApi.searchEmployees('', farm, 'harvester'));
@@ -363,7 +416,8 @@ export default function ScanScreen() {
 
   return (
     <Screen
-      title={action.label}
+      // A truck's screen is titled by its plan once one is open: "LP-2026-10-09-01".
+      title={req.includes('truckPick') && session.plan && !showNewPlan ? session.plan.name : action.label}
       leftIcon="arrow-back"
       onPressLeft={() => router.back()}
       rightIcon="menu"
@@ -374,7 +428,7 @@ export default function ScanScreen() {
         {action.needsFarm && !req.includes('deliveryPoint') ? (
           <Chip icon="location-outline" label={farm || 'No farm'} onPress={() => router.push('/settings')} bold />
         ) : null}
-        {!blocked && req.includes('greenhouse') ? (
+        {!blocked && formOpen && req.includes('greenhouse') ? (
           <View style={s.greenhouse}>
             {harvest.loading && !harvest.greenhouses.length ? (
               <SkeletonBox height={46} radius={borderRadius.sm} />
@@ -385,7 +439,8 @@ export default function ScanScreen() {
                 placeholder={harvest.loading ? 'Loading greenhouses…' : 'Choose the greenhouse'}
                 value={session.greenhouse}
                 options={greenhouseOptions}
-                onChange={(greenhouse) => setAndRefocus({ greenhouse })}
+                // Harvested-today varieties differ per greenhouse, so a new one needs its variety again.
+                onChange={(greenhouse) => setAndRefocus(harvestedOnly ? { greenhouse, variety: '' } : { greenhouse })}
                 emptyText={
                   harvest.loading
                     ? 'Loading…'
@@ -425,11 +480,37 @@ export default function ScanScreen() {
 
       {blocked ? (
         <Card>
-          <Button label="Choose process and farm" iconLeft="options-outline" onPress={() => router.push('/settings')} />
+          <Button label="Choose farm" iconLeft="options-outline" onPress={() => router.push('/settings')} />
         </Card>
       ) : (
         <>
-          {req.some((r) => !TOP_FIELDS.includes(r)) ? (
+          {session.harvestEdit ? (
+            <Card style={s.setup}>
+              <Text style={s.prompt}>
+                {session.harvestEdit.bucket_id} · {session.harvestEdit.stock_entry}
+                {'\n'}
+                {[session.harvestEdit.harvester_name || session.harvestEdit.harvester, session.harvestEdit.posting_date]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+              <Button
+                label="Scan another bucket"
+                iconLeft="scan-outline"
+                variant="outline"
+                onPress={() =>
+                  setAndRefocus({
+                    harvestEdit: null,
+                    greenhouse: '',
+                    variety: '',
+                    stemLength: '',
+                    bed: '',
+                    stems: '',
+                  })
+                }
+              />
+            </Card>
+          ) : null}
+          {formOpen && req.some((r) => !TOP_FIELDS.includes(r)) ? (
             <Card style={s.setup}>
               {req.includes('floorVariety') ? (
                 <SearchPicker<FloorVariety>
@@ -450,7 +531,7 @@ export default function ScanScreen() {
                   })}
                   onPick={(v) => update({ variety: v.name, varietyBalance: v.balance })}
                   onClear={() => setAndRefocus({ variety: '', varietyBalance: null })}
-                  onClose={refocus}
+                  onClose={focusNext}
                   searchPlaceholder="Search variety"
                   emptyText={`Nothing in ${farm}'s packhouse store`}
                 />
@@ -468,17 +549,21 @@ export default function ScanScreen() {
                     session.greenhouse || !req.includes('greenhouse') ? 'Choose the variety' : 'Choose the greenhouse first'
                   }
                   load={loadVarieties}
-                  cacheKey={varietiesKey(session.greenhouse, stemMode)}
+                  cacheKey={harvestedOnly ? `harvested|${farm}|${session.greenhouse}` : varietiesKey(session.greenhouse, stemMode)}
                   keyOf={(v) => v.name}
-                  row={(v) => ({ title: (v.item_name || v.name).trim(), sub: v.recent ? 'Recent' : undefined })}
+                  row={(v) =>
+                    harvestedOnly
+                      ? { title: (v.item_name || v.name).trim(), right: `${(v.stems ?? 0).toLocaleString()} stems` }
+                      : { title: (v.item_name || v.name).trim(), sub: v.recent ? 'Recent' : undefined }
+                  }
                   onPick={(v) => {
                     setPickedVariety(v);
                     update({ variety: v.name });
                   }}
-                  onClose={refocus}
+                  onClose={focusNext}
                   disabled={req.includes('greenhouse') && !session.greenhouse}
                   searchPlaceholder="Search variety"
-                  emptyText="No varieties"
+                  emptyText={harvestedOnly ? `Nothing harvested in ${session.greenhouse} today` : 'No varieties'}
                 />
               ) : null}
               {stemMode ? (
@@ -486,7 +571,10 @@ export default function ScanScreen() {
                   label="Stem length"
                   placeholder={session.variety ? 'Choose the stem length' : 'Choose the variety first'}
                   value={session.stemLength}
-                  options={harvest.stemLengths.map((l) => ({ label: l, value: l }))}
+                  options={harvest.stemLengths.map((l) => ({
+                    label: l,
+                    value: l,
+                  }))}
                   onChange={(stemLength) => setAndRefocus({ stemLength })}
                   disabled={!session.variety}
                   emptyText={harvest.loading ? 'Loading…' : 'No stem lengths set up'}
@@ -518,6 +606,7 @@ export default function ScanScreen() {
                   {req.includes('bed') ? (
                     <View style={{ flex: 1 }}>
                       <LabeledInput
+                        ref={bedRef}
                         label="Bed / bay"
                         value={session.bed}
                         onChangeText={(bed) => update({ bed })}
@@ -532,7 +621,7 @@ export default function ScanScreen() {
                   <View style={{ flex: 1 }}>
                     <LabeledInput
                       ref={stemsRef}
-                      label={action?.submit ? 'Stems rejected' : 'Stems in bucket'}
+                      label={action?.stemsLabel ?? (action?.submit ? 'Stems rejected' : 'Stems in bucket')}
                       value={session.stems}
                       onChangeText={(t) => update({ stems: t.replace(/[^0-9]/g, '') })}
                       onSubmitEditing={action?.submit ? undefined : refocus}
@@ -567,7 +656,7 @@ export default function ScanScreen() {
                   value={
                     session.opl
                       ? {
-                          title: `${session.opl.opl}${session.opl.customer ? ` · ${session.opl.customer}` : ''}`,
+                          title: oplTitle(session.opl.opl, session.opl.customer),
                           sub:
                             [session.opl.sales_order, session.opl.delivery_point].filter(Boolean).join(' · ') ||
                             undefined,
@@ -580,15 +669,28 @@ export default function ScanScreen() {
                   placeholder="Choose the Order Pick List"
                   load={loadOpls}
                   keyOf={(o) => o.opl}
-                  row={(o) => ({
-                    title: `${o.opl} · ${o.customer ?? ''}`,
-                    lead: o.total_stems ? `${o.packed_stems.toLocaleString()} / ${o.total_stems.toLocaleString()} stems` : undefined,
-                    sub: [o.sales_order, o.delivery_point].filter(Boolean).join(' · '),
-                    right: `${o.pack_pct ?? (o.total_stems ? Math.round((o.packed_stems * 100) / o.total_stems) : 0)}% packed`,
-                    // Green: Available for Sale holds enough to finish it; red: it is short.
-                    stripe: o.short_stems === undefined ? undefined : o.short_stems > 0 ? 'bad' : 'good',
-                    alert: o.short_stems ? `Grade ${o.short_stems.toLocaleString()} stems to complete this order` : undefined,
-                  })}
+                  row={(o) => {
+                    const pct = o.pack_pct ?? (o.total_stems ? Math.round((o.packed_stems * 100) / o.total_stems) : 0);
+                    return {
+                      title: oplTitle(o.opl, o.customer),
+                      lead: o.total_stems ? `${o.packed_stems.toLocaleString()} / ${o.total_stems.toLocaleString()} stems` : undefined,
+                      sub: [o.sales_order, o.delivery_point].filter(Boolean).join(' · '),
+                      right: `${pct}% packed`,
+                      // Green: packed; amber: being packed; red: not started.
+                      stripe: pct >= 100 ? 'good' : pct > 0 || o.packed_stems > 0 ? 'partial' : 'bad',
+                      table: o.varieties?.length
+                        ? {
+                            columns: ['Variety', 'Length', 'Bunches', 'Stems'],
+                            rows: o.varieties.map((v) => [
+                              v.item_name,
+                              v.stem_length ?? '-',
+                              `${v.bunches} × ${bunchSize(v.bunch_uom)}`,
+                              `${(v.packed_stems ?? 0).toLocaleString()}/${v.stems.toLocaleString()}`,
+                            ]),
+                          }
+                        : undefined,
+                    };
+                  }}
                   onPick={(o) =>
                     update({
                       opl: {
@@ -603,13 +705,10 @@ export default function ScanScreen() {
                     })
                   }
                   onClear={() => setAndRefocus({ opl: null })}
-                  onClose={refocus}
+                  onClose={focusNext}
                   searchPlaceholder="Search OPL, customer or sales order"
                   emptyText={`No Order Pick Lists waiting to be packed at ${farm}`}
                 />
-              ) : null}
-              {req.includes('opl') && session.opl ? (
-                <OplProgress opl={session.opl} farm={farm} onUnderPacked={() => setAndRefocus({ opl: null })} />
               ) : null}
               {req.includes('truck') ? (
                 <SetValue
@@ -624,7 +723,13 @@ export default function ScanScreen() {
                   label="Truck"
                   value={session.plan ? `${session.plan.vehicle} · ${session.plan.name} (${session.plan.status})` : null}
                   empty="Scan the Truck Label"
-                  onClear={() => setAndRefocus({ plan: null, truck: null, removeFromPlan: false })}
+                  onClear={() =>
+                    setAndRefocus({
+                      plan: null,
+                      truck: null,
+                      removeFromPlan: false,
+                    })
+                  }
                 />
               ) : null}
               {req.includes('deliveryPoint') ? (
@@ -657,12 +762,32 @@ export default function ScanScreen() {
                   })}
                   onPick={(p) => update({ deliveryPoint: p.delivery_point ?? '' })}
                   onClear={() => setAndRefocus({ deliveryPoint: null })}
-                  onClose={refocus}
+                  onClose={focusNext}
                   searchPlaceholder="Search delivery point"
                   emptyText="No boxes on their way"
                 />
               ) : null}
-              {req.includes('truckPick') ? (
+              {req.includes('truckPick') && showNewPlan ? (
+                <NewLoadingPlanForm
+                  farm={farm}
+                  onCreate={(plan) =>
+                    new Promise<void>((done) =>
+                      enqueue(plan.vehicle, async () => {
+                        const outcome = await startLoadingPlan(plan, update);
+                        if (outcome.tone === 'success' || outcome.tone === 'info') setShowNewPlan(false);
+                        done();
+                        return outcome;
+                      }),
+                    )
+                  }
+                  onOpen={(plan) => {
+                    update({ plan, truck: plan.vehicle });
+                    setShowNewPlan(false);
+                  }}
+                  onCancel={() => setShowNewPlan(false)}
+                />
+              ) : null}
+              {req.includes('truckPick') && !showNewPlan ? (
                 <SearchPicker<LoadingPlan>
                   label="Truck"
                   icon="bus-outline"
@@ -670,7 +795,7 @@ export default function ScanScreen() {
                     session.plan
                       ? {
                           title: session.plan.vehicle,
-                          sub: `${session.plan.name} · ${session.plan.status}`,
+                          sub: planLine(session.plan),
                           right: `${session.plan.loaded_boxes}/${session.plan.total_boxes}`,
                         }
                       : null
@@ -680,18 +805,27 @@ export default function ScanScreen() {
                   keyOf={(p) => p.name}
                   row={(p) => ({
                     title: p.vehicle,
-                    sub: `${p.farm ? `${p.farm} · ` : ''}${p.name} · ${p.status} · ${new Set(p.customers.map((c) => c.customer)).size} customer(s)`,
+                    sub: `${planLine(p)} · ${new Set(p.customers.map((c) => c.customer)).size} customer(s)`,
                     right: `${p.loaded_boxes}/${p.total_boxes}`,
                   })}
                   onPick={(plan) => update({ plan, truck: plan.vehicle })}
                   onClear={() => setAndRefocus({ plan: null, truck: null })}
-                  onClose={refocus}
+                  onClose={focusNext}
                   searchPlaceholder="Search truck"
-                  emptyText="No trucks being loaded. Plan boxes onto a truck in Loading Plan first."
+                  emptyText="No trucks being loaded yet"
+                />
+              ) : null}
+              {req.includes('truckPick') && !showNewPlan ? (
+                <Button
+                  label="New loading plan"
+                  iconLeft="add-circle-outline"
+                  variant="outline"
+                  onPress={() => setShowNewPlan(true)}
                 />
               ) : null}
               {req.includes('undispatchReason') ? (
                 <LabeledInput
+                  ref={undispatchRef}
                   label="Undispatch reason"
                   value={session.undispatchReason}
                   onChangeText={(undispatchReason) => update({ undispatchReason })}
@@ -706,7 +840,10 @@ export default function ScanScreen() {
                   label="Rejection reason"
                   placeholder="Choose a reason"
                   value={session.rejectionReason}
-                  options={rejectionReasons.map((r) => ({ label: r, value: r }))}
+                  options={rejectionReasons.map((r) => ({
+                    label: r,
+                    value: r,
+                  }))}
                   onChange={(rejectionReason) => setAndRefocus({ rejectionReason })}
                   searchable
                   emptyText="No rejection reasons set up"
@@ -715,18 +852,22 @@ export default function ScanScreen() {
             </Card>
           ) : null}
 
-          {countAtBottom && !awaitingGrader ? (
-            <View style={s.countRow}>
-              <Chip icon="checkmark-done-outline" label={`${count} scanned`} />
-            </View>
+          {/* Form-style actions (nothing scanned) show no scan count. */}
+          {creatingPlan ? null : countAtBottom && !awaitingGrader && !action.formAfterScan ? (
+            action.submit ? null : (
+              <View style={s.countRow}>
+                <Chip icon="checkmark-done-outline" label={`${count} scanned`} />
+              </View>
+            )
           ) : (
             <Text style={s.prompt}>{prompt}</Text>
           )}
-          {action.submit ? (
+          {creatingPlan ? null : action.submit && formOpen ? (
             <Button
               label={pending > 0 ? 'Recording…' : action.submit.label}
               iconLeft={action.submit.icon}
               loading={pending > 0}
+              disabled={action.submit.ready ? !action.submit.ready(session) : false}
               onPress={() => {
                 const submit = action.submit!;
                 const go = () => enqueue(submit.label, () => submit.run(sessionRef.current, update));
@@ -740,7 +881,12 @@ export default function ScanScreen() {
             />
           ) : (
             <>
-            <ScanField ref={scanRef} onScan={onScan} autoFocus />
+            <ScanField
+              ref={scanRef}
+              onScan={onScan}
+              autoFocus
+              cameraOnly={action.cameraOnly}
+            />
             {pending > 0 ? (
               <View style={s.readyRow}>
                 <View style={{ flex: 1 }} />
@@ -750,11 +896,21 @@ export default function ScanScreen() {
             </>
           )}
 
+          {req.includes('opl') && session.opl ? (
+            <Card style={s.oplCard}>
+              <OplProgress opl={session.opl} farm={farm} onUnderPacked={() => setAndRefocus({ opl: null })} />
+            </Card>
+          ) : null}
           {action.panel === 'rejects' && farm ? <GradedRejectsPanel farm={farm} version={session.rejectsVersion} /> : null}
+          {action.panel === 'field-rejects' && farm ? <FieldRejectsList farm={farm} /> : null}
           {action.panel === 'delivery' && session.deliveryPoint !== null ? (
             <DeliveryPanel point={session.deliveryPoint} date={deliveryDay} version={session.deliveryVersion} />
           ) : null}
-          {action.panel && action.panel !== 'rejects' && action.panel !== 'delivery' && session.plan ? (
+          {action.panel &&
+          action.panel !== 'rejects' &&
+          action.panel !== 'delivery' &&
+          action.panel !== 'field-rejects' &&
+          session.plan ? (
             <LoadingPlanPanel
               plan={session.plan}
               mode={action.panel as 'plan' | 'load' | 'dispatch'}
@@ -812,6 +968,21 @@ function SetValue({
 /** Why an OPL is closed short. */
 const UNDER_PACK_REASONS = ['Not enough stock', 'Poor quality', 'Order changed by customer', 'Other'];
 
+/** A plan's name, farm, delivery date and status: "LP-2026-10-10-01 · Turaco · delivers 2026-10-10 · Planning". */
+function planLine(p: LoadingPlan): string {
+  return [p.name, p.farm, p.delivery_date ? `delivers ${p.delivery_date}` : null, p.status].filter(Boolean).join(' · ');
+}
+
+/** An order as packers know it: "FLORAMONDO - OPL-2026-26033". */
+function oplTitle(opl: string, customer?: string | null): string {
+  return customer ? `${customer} - ${opl}` : opl;
+}
+
+/** "Bunch (12)" → "12"; anything else as it is. */
+function bunchSize(uom: string): string {
+  return uom.match(/\((\d+)\)/)?.[1] ?? uom;
+}
+
 function OplProgress({ opl, farm, onUnderPacked }: { opl: OplInfo; farm: string; onUnderPacked: () => void }) {
   const { notify } = useToast();
   const [sending, setSending] = useState(false);
@@ -820,6 +991,19 @@ function OplProgress({ opl, farm, onUnderPacked }: { opl: OplInfo; farm: string;
   const left = Math.max(total - packed, 0);
   // Started but not finished: it can be closed short, for a Sales Manager to approve.
   const canUnderPack = packed > 0 && left > 0;
+
+  // What to pack: reloaded after every packed bunch (packed_stems moves on each scan).
+  const [lines, setLines] = useState<OplLine[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    scanApi
+      .oplLines(opl.opl, farm)
+      .then((r) => live && r.success && setLines(r.lines ?? []))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [opl.opl, opl.packed_stems, farm]);
 
   const send = (reason: string) =>
     dialog('Under-pack', `Close ${opl.opl} with ${left.toLocaleString()} stems unpacked (${reason})?`, [
@@ -856,6 +1040,36 @@ function OplProgress({ opl, farm, onUnderPacked }: { opl: OplInfo; farm: string;
           </Text>{' '}
           of {total.toLocaleString()} stems
         </Text>
+      ) : null}
+      {lines === null ? (
+        <SkeletonBox height={64} style={s.oplLines} />
+      ) : lines.length ? (
+        <View style={s.oplLines}>
+          <View style={[s.oplLine, s.oplLineHead]}>
+            <Text style={[s.oplLineHeadText, s.oplLineVariety]}>Variety</Text>
+            <Text style={[s.oplLineHeadText, s.oplLineLength]}>Length</Text>
+            <Text style={[s.oplLineHeadText, s.oplLineQty]}>Bunches</Text>
+          </View>
+          {lines.map((l) => {
+            const done = l.packed_bunches >= l.bunches;
+            return (
+              <View key={`${l.variety}|${l.bunch_uom}|${l.stem_length}`} style={s.oplLine}>
+                <View style={s.oplLineVariety}>
+                  <Text style={[s.oplLineName, done && s.oplLineDone]} numberOfLines={1}>
+                    {l.item_name}
+                  </Text>
+                  <Text style={s.oplLineSub} numberOfLines={1}>
+                    {l.bunch_uom} · {l.stems.toLocaleString()} stems
+                  </Text>
+                </View>
+                <Text style={[s.oplLineLengthText, s.oplLineLength]}>{l.stem_length || '-'}</Text>
+                <Text style={[s.oplLineQtyText, s.oplLineQty, done && { color: colors.success }]}>
+                  {l.packed_bunches}/{l.bunches}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
       ) : null}
       {canUnderPack ? (
         <View style={s.underPack}>
@@ -894,13 +1108,74 @@ function Chip({
 }
 
 const s = StyleSheet.create({
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
   greenhouse: { flex: 1, minWidth: 160 },
-  oplInfo: { marginTop: -spacing.xs, gap: 2 },
+  oplCard: { marginTop: spacing.md },
+  oplInfo: { gap: 2 },
   underPack: { marginTop: spacing.sm },
-  oplCustomer: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.text },
-  oplStems: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary },
+  oplCustomer: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
+  oplStems: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
   oplNum: { fontFamily: fontFamily.bold, color: colors.text },
+  oplLines: {
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  oplLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  oplLineHead: { borderTopWidth: 0, backgroundColor: colors.surfaceAlt },
+  oplLineHeadText: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  oplLineVariety: { flex: 1, minWidth: 0 },
+  oplLineLength: { width: 56, textAlign: 'center' },
+  oplLineQty: { width: 64, textAlign: 'right' },
+  oplLineName: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
+  oplLineDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
+  oplLineSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  oplLineLengthText: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
+  oplLineQtyText: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+  },
   countRow: { flexDirection: 'row', marginBottom: spacing.md },
   chip: {
     flexDirection: 'row',
@@ -911,11 +1186,24 @@ const s = StyleSheet.create({
     borderRadius: borderRadius.full,
     backgroundColor: colors.surfaceAlt,
   },
-  chipText: { fontFamily: fontFamily.medium, fontSize: fontSize.sm, color: colors.textSecondary },
+  chipText: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+  },
   chipTextBold: { fontFamily: fontFamily.bold, color: colors.text },
   setup: { gap: spacing.md, marginBottom: spacing.md },
-  inputRow: { flexDirection: 'row', gap: spacing.md, marginBottom: -spacing.md },
-  setLabel: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text, marginBottom: spacing.sm },
+  inputRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: -spacing.md,
+  },
+  setLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.sm,
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
   setRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -927,8 +1215,24 @@ const s = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  setText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSize.md, color: colors.text },
+  setText: {
+    flex: 1,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.md,
+    color: colors.text,
+  },
   setEmpty: { color: colors.textMuted },
-  prompt: { fontFamily: fontFamily.semiBold, fontSize: fontSize.lg, color: colors.text, marginBottom: spacing.sm },
-  readyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40, marginTop: spacing.xs },
+  prompt: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.lg,
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  readyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 40,
+    marginTop: spacing.xs,
+  },
 });

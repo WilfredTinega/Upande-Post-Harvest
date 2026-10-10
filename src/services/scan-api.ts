@@ -32,6 +32,41 @@ export async function getMethod<T>(method: string, params: Record<string, unknow
 }
 
 /** Shape shared by every scan endpoint that reports success/failure in the body. */
+/** A harvested bucket's entry, as Edit Harvest shows and edits it. */
+export interface HarvestedBucket {
+  bucket_id: string;
+  stock_entry: string;
+  amended_from?: string | null;
+  posting_date: string;
+  posting_time: string;
+  farm: string;
+  greenhouse: string;
+  item_code: string;
+  /** The variety as picked: a stem-length variant shows as its template. */
+  variety: string;
+  variety_name: string;
+  stem_length: string;
+  bay: string;
+  qty: number;
+  uom?: string;
+  harvester?: string | null;
+  harvester_name?: string | null;
+}
+
+export type HarvestedBucketReply = ScanReply &
+  Partial<HarvestedBucket> & { unchanged?: boolean; previous?: string };
+
+export interface EditHarvestArgs {
+  farm: string;
+  bucket_id: string;
+  stock_entry: string;
+  greenhouse: string;
+  item_code: string;
+  stem_length: string;
+  bay: string;
+  quantity: number;
+}
+
 export interface ScanReply {
   success: boolean;
   error?: string;
@@ -48,6 +83,10 @@ export interface ScanSetup {
   can_view_devices?: boolean;
   /** The site's logo path (e.g. /private/files/x.jpeg), shown behind the home greeting. */
   logo?: string | null;
+  /** The processes this user may use (Post Harvest Settings: Users); Production when none is ticked. */
+  processes?: string[];
+  /** Post Harvest Settings: harvesting asks for each bucket's stem length. */
+  harvest_by_stem_length?: boolean;
 }
 
 export interface Employee {
@@ -71,6 +110,48 @@ export interface OplInfo extends ScanReply {
   packed_stems?: number;
 }
 
+/** A truck to start a loading plan for. */
+export interface VehicleOption {
+  vehicle: string;
+  description: string;
+  /** This farm's open plan for the truck: choosing it opens that plan. */
+  open_plan: string | null;
+}
+
+/** A harvested bucket not received yet (Awaiting Receiving). */
+export interface AwaitingBucket {
+  bucket: string;
+  variety: string;
+  item_name: string;
+  stem_length: string | null;
+  stems: number;
+  greenhouse: string | null;
+  bed: string | null;
+  harvester: string | null;
+  harvested_at: string | null;
+}
+
+/** A field reject waiting in the list until the whole list is submitted. */
+export interface FieldRejectLine {
+  greenhouse: string;
+  item_code: string;
+  reason: string;
+  bed: string;
+  stems: number;
+}
+
+/** One spec to pack on an OPL: a packing scan must match its variety, bunch size and stem length. */
+export interface OplLine {
+  variety: string;
+  item_name: string;
+  bunch_uom: string;
+  stem_length: string;
+  bunches: number;
+  stems: number;
+  packed_bunches: number;
+  packed_stems: number;
+}
+
 /** An Order Pick List the farm still has to pack (the OPL picker's rows). */
 export interface OpenOpl {
   opl: string;
@@ -83,6 +164,16 @@ export interface OpenOpl {
   /** With `with_stock`: how far it is packed, and stems Available for Sale is short to finish it (0 = enough). */
   pack_pct?: number;
   short_stems?: number;
+  /** What it holds per variety, stem length and bunch size, most stems first. */
+  varieties?: {
+    item_name: string;
+    stem_length: string | null;
+    bunch_uom: string;
+    bunches: number;
+    stems: number;
+    /** Packed so far on the farm's Farm Pack List. */
+    packed_stems?: number;
+  }[];
 }
 
 export interface Greenhouse {
@@ -101,6 +192,9 @@ export interface Variety {
   recent?: 0 | 1;
   /** Most stems a bucket of this variety holds (Production Settings). */
   max_stems?: number;
+  /** harvested_varieties: what was harvested of it today in the greenhouse. */
+  buckets?: number;
+  stems?: number;
 }
 
 export interface HarvestSetup extends ScanReply {
@@ -222,7 +316,15 @@ export interface RejectsDay extends ScanReply {
   /** Submitted plus still on today's draft. */
   rejected_stems: number;
   draft: string | null;
-  lines: { row: string; item_code: string; item_name: string; stem_length?: string | null; stems: number; submitted: boolean }[];
+  lines: {
+    row: string;
+    item_code: string;
+    item_name: string;
+    stem_length?: string | null;
+    stems: number;
+    reason?: string | null;
+    submitted: boolean;
+  }[];
 }
 
 /** A variety on the packhouse floor and how many stems of it are there. */
@@ -325,6 +427,8 @@ export interface LoadingPlan {
   name: string;
   vehicle: string;
   farm?: string | null;
+  /** yyyy-mm-dd the truck delivers: the day after it was planned. */
+  delivery_date?: string | null;
   status: 'Planning' | 'Loading' | 'Loaded' | 'Dispatched' | 'Cancelled';
   docstatus: number;
   /** Boxes the day's orders need (a box several farms pack counts once). */
@@ -377,6 +481,11 @@ export const scanApi = {
   getEmployee: (employee: string) => callMethod<ScanReply & Partial<Employee>>('setup.get_employee', { employee }),
   validateOpl: (opl_data: string, farm: string) =>
     callMethod<OplInfo>('setup.validate_order_pick_list', { opl_data, farm }),
+  oplLines: (opl: string, farm: string) =>
+    callMethod<ScanReply & { lines?: OplLine[] }>('setup.order_pick_list_lines', { opl, farm }),
+  /** The farm's harvested buckets not received yet, oldest first. */
+  awaitingReceiving: (farm: string) =>
+    callMethod<ScanReply & { buckets?: AwaitingBucket[]; stems?: number }>('setup.awaiting_receiving', { farm }),
   listOpenOpls: (farm: string, txt?: string) =>
     callMethod<ScanReply & { opls?: OpenOpl[] }>('setup.list_open_order_pick_lists', { farm, txt, with_stock: 1 }),
 
@@ -387,6 +496,9 @@ export const scanApi = {
   harvestSetup: (farm: string, byStemLength = false) =>
     callMethod<HarvestSetup>('harvesting.get_harvest_setup', { farm, by_stem_length: byStemLength ? 1 : 0 }),
   /** The first 20 varieties, matching `txt`; the greenhouse's recent harvests come first, flagged `recent`. */
+  /** Varieties harvested into the greenhouse today, most stems first (field rejects). */
+  harvestedVarieties: (farm: string, greenhouse: string, txt: string) =>
+    callMethod<Variety[]>('harvesting.harvested_varieties', { farm, greenhouse, txt }),
   searchVarieties: (txt: string, greenhouse: string, byStemLength = false) =>
     callMethod<Variety[]>('harvesting.search_varieties', {
       txt,
@@ -396,6 +508,18 @@ export const scanApi = {
   recentVarieties: (greenhouse: string, byStemLength = false) =>
     callMethod<string[]>('harvesting.get_recent_varieties', { greenhouse, by_stem_length: byStemLength ? 1 : 0 }),
   harvest: (args: HarvestArgs) => callMethod<ScanReply>('harvesting.harvest', { ...args }),
+  /** A harvested bucket that is not yet received: what its harvest entry holds (Edit Harvest). */
+  harvestedBucket: (farm: string, bucket_id: string) =>
+    callMethod<HarvestedBucketReply>('harvesting.get_harvested_bucket', { farm, bucket_id }),
+  /** Replace the bucket's harvest entry with an amendment holding these values. */
+  editHarvestedBucket: (args: EditHarvestArgs) =>
+    callMethod<HarvestedBucketReply>('harvesting.edit_harvested_bucket', { ...args }),
+  /** The Field Rejects list, recorded together: all of it or, on an error, none. */
+  submitFieldRejects: (farm: string, rows: FieldRejectLine[]) =>
+    callMethod<ScanReply & { entries?: number; stems?: number; row?: number }>('harvesting.submit_field_rejects', {
+      farm,
+      rows: JSON.stringify(rows),
+    }),
   fieldRejects: (farm: string, greenhouse: string, item_code: string, stems: number, reason: string) =>
     callMethod<ScanReply>('harvesting.field_rejects', { farm, greenhouse, item_code, stems, reason }),
 
@@ -420,8 +544,13 @@ export const scanApi = {
   packhouseBalances: (farm: string, txt = '') =>
     callMethod<FloorVariety[]>('graded_rejects.packhouse_balances', { farm, txt }),
   /** Add a line to today's draft Graded Rejects entry (saved, not submitted). */
-  addReject: (farm: string, item_code: string, stems: number) =>
-    callMethod<ScanReply & { qty?: number; variety?: string }>('graded_rejects.add_reject', { farm, item_code, stems }),
+  addReject: (farm: string, item_code: string, stems: number, reason: string) =>
+    callMethod<ScanReply & { qty?: number; variety?: string; reason?: string }>('graded_rejects.add_reject', {
+      farm,
+      item_code,
+      stems,
+      reason,
+    }),
   removeReject: (farm: string, row: string) => callMethod<ScanReply>('graded_rejects.remove_reject', { farm, row }),
   submitRejects: (farm: string) => callMethod<ScanReply & { qty?: number }>('graded_rejects.submit_rejects', { farm }),
   getRejects: (farm: string) => callMethod<RejectsDay>('graded_rejects.get_rejects', { farm }),
@@ -449,10 +578,23 @@ export const scanApi = {
     callMethod<ScanReply & { boxes?: DeliveryBox[] }>('delivery_form.point_boxes', { delivery_point, date }),
 
   // Packing -> Dispatch: staging, loading plan, loading, dispatch
-  openLoadingPlan: (vehicle: string, farm: string, create: boolean) =>
-    callMethod<PlanReply>('dispatch_flow.open_loading_plan', { vehicle, farm, create: create ? 1 : 0 }),
-  listOpenLoadingPlans: (farm: string) =>
-    callMethod<ScanReply & { plans?: LoadingPlan[] }>('dispatch_flow.list_open_loading_plans', { farm }),
+  /** The truck's open plan for the farm; with `deliveryDate`, the one delivering that day (created as LP-<date>-<nn>). */
+  openLoadingPlan: (vehicle: string, farm: string, create: boolean, deliveryDate?: string) =>
+    callMethod<PlanReply>('dispatch_flow.open_loading_plan', {
+      vehicle,
+      farm,
+      create: create ? 1 : 0,
+      ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
+    }),
+  /** Trucks a loading plan can be started for, with this farm's open plan for each if any. */
+  listVehicles: (farm: string, txt: string) =>
+    callMethod<ScanReply & { vehicles?: VehicleOption[] }>('dispatch_flow.list_vehicles', { farm, txt }),
+  /** Open plans for the farm; with `deliveryDate`, every plan delivering that day (dispatched too). */
+  listOpenLoadingPlans: (farm: string, deliveryDate?: string) =>
+    callMethod<ScanReply & { plans?: LoadingPlan[] }>('dispatch_flow.list_open_loading_plans', {
+      farm,
+      ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
+    }),
   getLoadingPlan: (plan: string) => callMethod<PlanReply>('dispatch_flow.get_loading_plan', { plan }),
   planBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.plan_box', { plan, box }),
   unplanBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.unplan_box', { plan, box }),
