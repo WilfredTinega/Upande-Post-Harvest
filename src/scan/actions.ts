@@ -155,6 +155,9 @@ export interface ActionDef {
   startsPlan?: boolean;
   /** The variety picker lists only what was harvested into the greenhouse today. */
   harvestedVarietiesOnly?: boolean;
+  /** A scan that may go out alongside the ones before it instead of waiting its turn, as the
+   *  desk scan form does. Only scans that don't depend on an earlier one finishing. */
+  parallel?: (code: string, s: ScanSession) => boolean;
   /** Scan first: the fields and the submit button show once the scan has loaded a record. */
   formAfterScan?: boolean;
   /** Always pick the stem length, whatever the Harvest by stem length setting. */
@@ -598,6 +601,9 @@ export const ACTIONS: ActionDef[] = [
     icon: 'ribbon-outline',
     needsFarm: true,
     requirements: ['grader'],
+    // Bunches go out as fast as they are scanned once the grader is set; a grader badge
+    // still waits its turn, so the bunches after it are graded by that grader.
+    parallel: (code, s) => !!s.grader && !parseGraderQr(code) && !!parseBunch(code),
     prompt: (s) => (s.grader ? 'Scan a bunch QR' : 'Scan the grader QR'),
     handle: (code, s, update) =>
       run(async () => {
