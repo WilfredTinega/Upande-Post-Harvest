@@ -1,13 +1,13 @@
 {
-  "id": "0a10919d-3288-49a8-9e92-4a2859ab46a4",
-  "createdAt": "2026-10-07T17:56:54.595Z",
+  "id": "79a97e3a-216b-430b-99e3-298f66912ec6",
+  "createdAt": "2026-10-10T05:06:48.817Z",
   "runtimeVersion": "1.1",
   "launchAsset": {
-    "hash": "DFu_2jvF7VGEILJBBwrEWgb_xTM7kPHYY8VeEzoNTcA",
-    "key": "entry-14a67912149b58e7e0b0f1cbbadacb3b",
+    "hash": "KuXU1Psio_hi0WqXqbaoMyVvxIWo1fzOb9HYWyZIKVs",
+    "key": "entry-cc5790818ab3aff15651028a7fdc0817",
     "contentType": "application/javascript",
     "fileExtension": ".hbc",
-    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/_expo/static/js/android/entry-14a67912149b58e7e0b0f1cbbadacb3b.hbc"
+    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/_expo/static/js/android/entry-cc5790818ab3aff15651028a7fdc0817.hbc"
   },
   "assets": [
     {
@@ -616,7 +616,7 @@
   "metadata": {},
   "extra": {
     "expoClient": {
-      "name": "Post Harvest",
+      "name": "Upande Post Harvest",
       "slug": "post-harvest",
       "version": "1.1.1",
       "orientation": "portrait",
@@ -645,7 +645,7 @@
           "monochromeImage": "./assets/images/android-icon-monochrome.png"
         },
         "predictiveBackGestureEnabled": false,
-        "softwareKeyboardLayoutMode": "pan",
+        "softwareKeyboardLayoutMode": "resize",
         "permissions": [
           "android.permission.CAMERA",
           "android.permission.USE_BIOMETRIC",
@@ -677,7 +677,7 @@
         [
           "expo-camera",
           {
-            "cameraPermission": "Allow Post Harvest to scan QR codes.",
+            "cameraPermission": "Allow Upande Post Harvest to scan QR codes.",
             "recordAudioAndroid": false
           }
         ],
@@ -691,7 +691,7 @@
         [
           "expo-local-authentication",
           {
-            "faceIDPermission": "Allow Post Harvest to unlock with Face ID."
+            "faceIDPermission": "Allow Upande Post Harvest to unlock with Face ID."
           }
         ],
         [
@@ -730,6 +730,6 @@
       "sdkVersion": "57.0.0"
     },
     "appVersion": "1.1.1",
-    "publishedAt": "2026-10-07T17:56:54.624Z"
+    "publishedAt": "2026-10-10T05:06:48.841Z"
   }
 }
