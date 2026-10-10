@@ -108,8 +108,10 @@ export interface OplInfo extends ScanReply {
   total_stems?: number;
   warning?: string | null;
   delivery_point?: string | null;
-  /** Stems packed so far on the farm's draft Farm Pack List. */
+  /** Stems packed so far on the farm's draft Farm Pack List, at the desk too. */
   packed_stems?: number;
+  /** Bunches packed per box and spec ("box|variety|bunch_uom|stem_length") by this session's scans. */
+  packed_specs?: Record<string, number>;
 }
 
 /** A truck to start a loading plan for. */
@@ -152,6 +154,17 @@ export interface OplLine {
   stems: number;
   packed_bunches: number;
   packed_stems: number;
+  /** The boxes this spec goes into. */
+  boxes?: number[];
+}
+
+/** One box on an OPL (its box number) and the specs it holds. */
+export interface OplBox {
+  box_id: number;
+  box_label: string;
+  bunches: number;
+  packed_bunches: number;
+  lines: OplLine[];
 }
 
 /** An Order Pick List the farm still has to pack (the OPL picker's rows). */
@@ -485,7 +498,7 @@ export const scanApi = {
   validateOpl: (opl_data: string, farm: string) =>
     callMethod<OplInfo>('setup.validate_order_pick_list', { opl_data, farm }),
   oplLines: (opl: string, farm: string) =>
-    callMethod<ScanReply & { lines?: OplLine[] }>('setup.order_pick_list_lines', { opl, farm }),
+    callMethod<ScanReply & { lines?: OplLine[]; boxes?: OplBox[] }>('setup.order_pick_list_lines', { opl, farm }),
   /** The farm's harvested buckets not received yet, oldest first. */
   awaitingReceiving: (farm: string) =>
     callMethod<ScanReply & { buckets?: AwaitingBucket[]; stems?: number }>('setup.awaiting_receiving', { farm }),

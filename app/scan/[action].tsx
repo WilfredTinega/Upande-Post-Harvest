@@ -39,7 +39,7 @@ import {
   prefetchList,
   varietiesKey,
 } from '@/src/services/list-cache';
-import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplInfo, type OplLine, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
@@ -1018,18 +1018,51 @@ function OplProgress({ opl, farm, onUnderPacked }: { opl: OplInfo; farm: string;
   // Started but not finished: it can be closed short, for a Sales Manager to approve.
   const canUnderPack = packed > 0 && left > 0;
 
-  // What to pack: reloaded after every packed bunch (packed_stems moves on each scan).
-  const [lines, setLines] = useState<OplLine[] | null>(null);
+  // What to pack, box by box, loaded with the OPL. Each packed bunch moves its own line
+  // from the scan's reply, so packing doesn't wait on another request.
+  const [loaded, setLoaded] = useState<{ opl: string; boxes: OplBox[] } | null>(null);
   useEffect(() => {
     let live = true;
     scanApi
       .oplLines(opl.opl, farm)
-      .then((r) => live && r.success && setLines(r.lines ?? []))
+      .then((r) => {
+        if (!live || !r.success) return;
+        const lines = r.lines ?? [];
+        const boxes = r.boxes ?? [
+          {
+            box_id: 0,
+            box_label: '',
+            bunches: lines.reduce((n, l) => n + l.bunches, 0),
+            packed_bunches: lines.reduce((n, l) => n + Math.min(l.packed_bunches, l.bunches), 0),
+            lines,
+          },
+        ];
+        setLoaded({ opl: opl.opl, boxes });
+      })
       .catch(() => {});
     return () => {
       live = false;
     };
-  }, [opl.opl, opl.packed_stems, farm]);
+  }, [opl.opl, farm]);
+  const specs = opl.packed_specs;
+  const boxes = useMemo(() => {
+    if (loaded?.opl !== opl.opl) return null;
+    if (!specs) return loaded.boxes;
+    return loaded.boxes.map((b) => {
+      const lines = b.lines.map((l) => {
+        const bunches = specs[`${b.box_id}|${l.variety}|${l.bunch_uom}|${l.stem_length}`];
+        if (bunches === undefined) return l;
+        return {
+          ...l,
+          packed_bunches: bunches,
+          packed_stems: l.bunches ? Math.round((l.stems / l.bunches) * bunches) : l.packed_stems,
+        };
+      });
+      return { ...b, lines, packed_bunches: lines.reduce((n, l) => n + Math.min(l.packed_bunches, l.bunches), 0) };
+    });
+  }, [loaded, opl.opl, specs]);
+  // The box being packed: the first one not full yet.
+  const current = boxes?.find((b) => b.packed_bunches < b.bunches)?.box_id;
 
   const send = (reason: string) =>
     dialog('Under-pack', `Close ${opl.opl} with ${left.toLocaleString()} stems unpacked (${reason})?`, [
@@ -1058,45 +1091,68 @@ function OplProgress({ opl, farm, onUnderPacked }: { opl: OplInfo; farm: string;
           {opl.customer}
         </Text>
       ) : null}
+      <Text style={s.oplNumber} numberOfLines={1}>
+        {opl.opl}
+      </Text>
       {total ? (
-        <Text style={s.oplStems}>
-          Packed <Text style={s.oplNum}>{packed.toLocaleString()}</Text> · Remaining{' '}
-          <Text style={[s.oplNum, left === 0 && { color: colors.success }]}>
-            {left ? left.toLocaleString() : 'none'}
-          </Text>{' '}
-          of {total.toLocaleString()} stems
-        </Text>
-      ) : null}
-      {lines === null ? (
-        <SkeletonBox height={64} style={s.oplLines} />
-      ) : lines.length ? (
-        <View style={s.oplLines}>
-          <View style={[s.oplLine, s.oplLineHead]}>
-            <Text style={[s.oplLineHeadText, s.oplLineVariety]}>Variety</Text>
-            <Text style={[s.oplLineHeadText, s.oplLineLength]}>Length</Text>
-            <Text style={[s.oplLineHeadText, s.oplLineQty]}>Bunches</Text>
+        <View style={s.oplCounts}>
+          <View style={s.oplCount}>
+            <Text style={s.oplCountLabel}>Packed</Text>
+            <Text style={s.oplCountNum}>{packed.toLocaleString()}</Text>
           </View>
-          {lines.map((l) => {
-            const done = l.packed_bunches >= l.bunches;
-            return (
-              <View key={`${l.variety}|${l.bunch_uom}|${l.stem_length}`} style={s.oplLine}>
-                <View style={s.oplLineVariety}>
-                  <Text style={[s.oplLineName, done && s.oplLineDone]} numberOfLines={1}>
-                    {l.item_name}
-                  </Text>
-                  <Text style={s.oplLineSub} numberOfLines={1}>
-                    {l.bunch_uom} · {l.stems.toLocaleString()} stems
-                  </Text>
-                </View>
-                <Text style={[s.oplLineLengthText, s.oplLineLength]}>{l.stem_length || '-'}</Text>
-                <Text style={[s.oplLineQtyText, s.oplLineQty, done && { color: colors.success }]}>
-                  {l.packed_bunches}/{l.bunches}
-                </Text>
-              </View>
-            );
-          })}
+          <View style={s.oplCount}>
+            <Text style={s.oplCountLabel}>Remaining</Text>
+            <Text style={[s.oplCountNum, left === 0 && { color: colors.success }]}>{left.toLocaleString()}</Text>
+          </View>
+          <View style={s.oplCount}>
+            <Text style={s.oplCountLabel}>Total stems</Text>
+            <Text style={[s.oplCountNum, s.oplCountTotal]}>{total.toLocaleString()}</Text>
+          </View>
         </View>
       ) : null}
+      {boxes === null ? (
+        <SkeletonBox height={64} style={s.oplLines} />
+      ) : (
+        boxes.map((b) => {
+          const full = b.packed_bunches >= b.bunches;
+          const label = b.box_label && b.box_label !== `Box ${b.box_id}` ? ` · ${b.box_label}` : '';
+          return (
+            <View key={b.box_id} style={[s.oplLines, b.box_id === current && s.oplBoxCurrent]}>
+              <View style={[s.oplLine, s.oplLineHead]}>
+                {full ? <Ionicons name="checkmark-circle" size={16} color={colors.success} /> : null}
+                <Text style={[s.oplBoxTitle, s.oplLineVariety]} numberOfLines={1}>
+                  {b.box_id ? `Box ${b.box_id}` : 'Order'}
+                  {label}
+                </Text>
+                <Text style={[s.oplLineQtyText, full && { color: colors.success }]}>
+                  {b.packed_bunches}/{b.bunches}
+                </Text>
+              </View>
+              {full
+                ? null
+                : b.lines.map((l) => {
+                    const done = l.packed_bunches >= l.bunches;
+                    return (
+                      <View key={`${l.variety}|${l.bunch_uom}|${l.stem_length}`} style={s.oplLine}>
+                        <View style={s.oplLineVariety}>
+                          <Text style={[s.oplLineName, done && s.oplLineDone]} numberOfLines={1}>
+                            {l.item_name}
+                          </Text>
+                          <Text style={s.oplLineSub} numberOfLines={1}>
+                            {l.bunch_uom} · {l.stems.toLocaleString()} stems
+                          </Text>
+                        </View>
+                        <Text style={[s.oplLineLengthText, s.oplLineLength]}>{l.stem_length || '-'}</Text>
+                        <Text style={[s.oplLineQtyText, s.oplLineQty, done && { color: colors.success }]}>
+                          {l.packed_bunches}/{l.bunches}
+                        </Text>
+                      </View>
+                    );
+                  })}
+            </View>
+          );
+        })
+      )}
       {canUnderPack ? (
         <View style={s.underPack}>
           <Dropdown
@@ -1150,12 +1206,25 @@ const s = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.text,
   },
-  oplStems: {
-    fontFamily: fontFamily.regular,
+  oplNumber: {
+    fontFamily: fontFamily.medium,
     fontSize: fontSize.xs,
     color: colors.textSecondary,
   },
-  oplNum: { fontFamily: fontFamily.bold, color: colors.text },
+  oplCounts: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
+  oplCount: { flex: 1 },
+  oplCountLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  oplCountNum: {
+    fontFamily: fontFamily.bold,
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.text,
+  },
+  oplCountTotal: { color: colors.textSecondary },
   oplLines: {
     marginTop: spacing.sm,
     borderWidth: 1,
@@ -1171,6 +1240,12 @@ const s = StyleSheet.create({
     paddingVertical: spacing.xs + 2,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+  },
+  oplBoxCurrent: { borderColor: colors.primary, borderWidth: 2 },
+  oplBoxTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.sm,
+    color: colors.text,
   },
   oplLineHead: { borderTopWidth: 0, backgroundColor: colors.surfaceAlt },
   oplLineHeadText: {

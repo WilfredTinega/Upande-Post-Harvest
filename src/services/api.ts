@@ -162,11 +162,11 @@ function buildClient(): AxiosInstance {
           cfg._reauthRetry = true;
           return instance.request(cfg);
         }
-        // Stored credentials are gone/invalid — hard logout so the gate routes
-        // back to the login screen.
+        // The stored password didn't get back in (changed, or no connection): back to
+        // the login screen, keeping the server and email for the next sign-in.
         try {
           const { useAuthStore } = await import('@/src/stores/authStore');
-          await useAuthStore.getState().forgetDevice();
+          await useAuthStore.getState().logout();
         } catch {}
       }
       return Promise.reject(error);
