@@ -40,8 +40,10 @@ export function AwaitingReceivingSheet({ farm, open, onClose }: Props) {
 
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable ref={overlayRef} style={s.overlay} onPress={onClose} onLayout={onOverlayLayout}>
-        <Pressable style={[s.sheet, sheetStyle]} onPress={() => {}}>
+      <View ref={overlayRef} style={s.overlay} onLayout={onOverlayLayout}>
+        {/* The backdrop closes the sheet; the sheet itself is a plain View so the list keeps its swipes. */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        <View style={[s.sheet, sheetStyle]}>
           <View style={s.header}>
             <View style={{ flex: 1 }}>
               <Text style={s.title}>Awaiting receiving</Text>
@@ -68,13 +70,15 @@ export function AwaitingReceivingSheet({ farm, open, onClose }: Props) {
             renderItem={({ item: b }) => (
               <View style={s.row}>
                 <View style={{ flex: 1 }}>
+                  <Text style={s.bucket} numberOfLines={1}>
+                    {b.bucket}
+                  </Text>
                   <Text style={s.variety} numberOfLines={1}>
                     {b.item_name}
                     {b.stem_length ? <Text style={s.length}>{`  ${b.stem_length}`}</Text> : null}
                   </Text>
                   <Text style={s.sub} numberOfLines={1}>
-                    <Text style={s.bucket}>{b.bucket}</Text>
-                    {[b.greenhouse, b.bed ? `bed ${b.bed}` : null, b.harvester].filter(Boolean).map((t) => ` · ${t}`).join('')}
+                    {[b.greenhouse, b.bed ? `bed ${b.bed}` : null, b.harvester].filter(Boolean).join(' · ')}
                   </Text>
                   {b.harvested_at ? <Text style={s.when}>Harvested {harvestedAt(b.harvested_at)}</Text> : null}
                 </View>
@@ -85,8 +89,8 @@ export function AwaitingReceivingSheet({ farm, open, onClose }: Props) {
               </View>
             )}
           />
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -122,10 +126,10 @@ const s = StyleSheet.create({
   list: { flexShrink: 1 },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
-  variety: { fontFamily: fontFamily.semiBold, fontSize: fontSize.md, color: colors.text },
+  variety: { fontFamily: fontFamily.medium, fontSize: fontSize.sm, color: colors.text, marginTop: 2 },
   length: { fontFamily: fontFamily.bold, color: colors.text },
   sub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
-  bucket: { fontFamily: fontFamily.bold, color: colors.text },
+  bucket: { fontFamily: fontFamily.bold, fontSize: fontSize.md, color: colors.text },
   when: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   qty: { alignItems: 'flex-end' },
   stems: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.text },
