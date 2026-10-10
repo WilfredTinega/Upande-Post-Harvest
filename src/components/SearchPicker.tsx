@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 import { ListSkeleton } from '@/src/components/Skeleton';
@@ -152,8 +152,10 @@ export function SearchPicker<T>({
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={close}>
-        <Pressable ref={overlayRef} style={s.overlay} onPress={close} onLayout={onOverlayLayout}>
-          <Pressable style={[s.sheet, sheetStyle]} onPress={() => {}}>
+        <View ref={overlayRef} style={s.overlay} onLayout={onOverlayLayout}>
+          {/* The backdrop closes the sheet; the sheet itself is a plain View so its list keeps its swipes. */}
+          <Pressable style={StyleSheet.absoluteFill} onPress={close} accessibilityLabel="Close" />
+          <View style={[s.sheet, sheetStyle]}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>{label}</Text>
               <Pressable onPress={close} style={s.closeBtn} accessibilityLabel="Close">
@@ -233,23 +235,26 @@ export function SearchPicker<T>({
                             </Text>
                           ))}
                         </View>
-                        {r.table.rows.map((cells, j) => (
-                          <View key={j} style={s.tableRow}>
-                            {cells.map((c, i) => (
-                              <Text key={i} style={[s.td, i === 0 ? s.cellFirst : s.cell]} numberOfLines={2}>
-                                {c}
-                              </Text>
-                            ))}
-                          </View>
-                        ))}
+                        {/* A long order scrolls inside its table; the list scrolls around it. */}
+                        <ScrollView style={s.tableBody} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                          {r.table.rows.map((cells, j) => (
+                            <View key={j} style={s.tableRow}>
+                              {cells.map((c, i) => (
+                                <Text key={i} style={[s.td, i === 0 ? s.cellFirst : s.cell]} numberOfLines={2}>
+                                  {c}
+                                </Text>
+                              ))}
+                            </View>
+                          ))}
+                        </ScrollView>
                       </View>
                     ) : null}
                   </View>
                 );
               }}
             />
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -391,6 +396,7 @@ const s = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
+  tableBody: { maxHeight: 260 },
   tableHead: { borderTopWidth: 0, backgroundColor: colors.surfaceAlt },
   th: {
     fontFamily: fontFamily.semiBold,

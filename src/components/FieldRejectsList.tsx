@@ -173,8 +173,10 @@ interface EditSheetProps {
 function EditSheet({ line, draft, onDraft, valid, onSave, onRemove, onClose, overlayRef, onOverlayLayout, sheetStyle }: EditSheetProps) {
   return (
     <Modal visible={!!line} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable ref={overlayRef} style={s.overlay} onPress={onClose} onLayout={onOverlayLayout}>
-        <Pressable style={[s.sheet, sheetStyle]} onPress={() => {}}>
+      <View ref={overlayRef} style={s.overlay} onLayout={onOverlayLayout}>
+        {/* The backdrop closes the sheet; the sheet itself is a plain View so its list keeps its swipes. */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        <View style={[s.sheet, sheetStyle]}>
           {line ? (
             <>
               <View style={s.sheetHeader}>
@@ -207,8 +209,8 @@ function EditSheet({ line, draft, onDraft, valid, onSave, onRemove, onClose, ove
               </View>
             </>
           ) : null}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

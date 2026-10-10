@@ -115,8 +115,10 @@ export function EmployeePicker({
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <Pressable ref={overlayRef} style={s.overlay} onPress={() => setOpen(false)} onLayout={onOverlayLayout}>
-          <Pressable style={[s.sheet, sheetStyle]} onPress={() => {}}>
+        <View ref={overlayRef} style={s.overlay} onLayout={onOverlayLayout}>
+          {/* The backdrop closes the sheet; the sheet itself is a plain View so its list keeps its swipes. */}
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close" />
+          <View style={[s.sheet, sheetStyle]}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>{label}</Text>
               <Pressable onPress={() => setOpen(false)} style={s.closeBtn}>
@@ -166,8 +168,8 @@ export function EmployeePicker({
                 </Pressable>
               )}
             />
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );

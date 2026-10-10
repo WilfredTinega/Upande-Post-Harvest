@@ -705,10 +705,30 @@ export const ACTIONS: ActionDef[] = [
         if (!p) return fail('Please scan a valid Bunch QR Code');
         const r = await scanApi.packing(s.opl.opl, p.json, s.farm, s.packer.name);
         if (r.success) {
-          update({ opl: { ...s.opl, packed_stems: r.scanned_stems, total_stems: r.total_stems || s.opl.total_stems } });
+          update({
+            opl: {
+              ...s.opl,
+              packed_stems: r.scanned_stems,
+              total_stems: r.total_stems || s.opl.total_stems,
+              packed_specs:
+                r.box_spec_bunches !== undefined
+                  ? {
+                      ...s.opl.packed_specs,
+                      [`${Number(r.box_id)}|${r.variety}|${r.bunch_uom}|${r.stem_length}`]: r.box_spec_bunches,
+                    }
+                  : s.opl.packed_specs,
+            },
+          });
+          const label = r.box_label && r.box_label !== `Box ${r.box_id}` ? ` · ${r.box_label}` : '';
+          const box =
+            r.box_required !== undefined
+              ? r.box_bunches >= r.box_required
+                ? `Box ${r.box_id} complete`
+                : `Box ${r.box_id}: ${r.box_bunches}/${r.box_required} bunches`
+              : r.spec_progress;
           return ok(
-            `${r.variety} → ${r.box_label || `Box ${r.box_id}`}`,
-            `${r.spec_progress} · order ${r.scanned_stems}/${r.total_stems} stems (${r.completion}%)`,
+            `${r.variety} → Box ${r.box_id}${label}`,
+            `${box} · order ${r.scanned_stems}/${r.total_stems} stems (${r.completion}%)`,
           );
         }
         return rejected(r, [

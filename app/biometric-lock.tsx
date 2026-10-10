@@ -14,7 +14,8 @@ import { useAuthStore } from '@/src/stores/authStore';
 
 export default function BiometricLockScreen() {
   const biometricLogin = useAuthStore((s) => s.biometricLogin);
-  const forgetDevice = useAuthStore((s) => s.forgetDevice);
+  // To the password login, keeping the server and email: nothing is forgotten.
+  const logout = useAuthStore((s) => s.logout);
   const email = useAuthStore((s) => s.email);
   const fullName = useAuthStore((s) => s.fullName);
 
@@ -76,7 +77,7 @@ export default function BiometricLockScreen() {
           </View>
         ) : null}
 
-        <TouchableOpacity onPress={forgetDevice} hitSlop={8} style={s.linkBtn}>
+        <TouchableOpacity onPress={logout} hitSlop={8} style={s.linkBtn}>
           <Text style={s.linkText}>Use password instead</Text>
         </TouchableOpacity>
       </View>
