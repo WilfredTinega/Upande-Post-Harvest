@@ -142,25 +142,35 @@ export default function ScanScreen() {
       setPending((n) => n + 1);
       queue.current = queue.current.then(async () => {
         const outcome = await work();
-        if (outcome.tone === 'success' || outcome.tone === 'info') audio.beep();
+        if (outcome.silent) {
+          // No sound for this outcome.
+        } else if (outcome.tone === 'success' || outcome.tone === 'info') audio.beep();
         else audio.error();
         if (outcome.counts) setCount((n) => n + 1);
         if (outcome.tone === 'success' || outcome.tone === 'info') {
           const text = outcome.detail ? `${outcome.title}\n${outcome.detail}` : outcome.title;
           notify(text, outcome.tone, SUCCESS_TOAST_MS, 'center');
         } else {
-          setBlocker({
+          const shown = {
             tone: outcome.tone,
             title: outcome.title,
             detail: outcome.detail,
-          });
+          };
+          setBlocker(shown);
+          if (outcome.dismissAfterMs) {
+            setTimeout(() => {
+              // Only if it is still the one up (a later scan may have replaced it).
+              setBlocker((cur) => (cur === shown ? null : cur));
+              refocus();
+            }, outcome.dismissAfterMs);
+          }
         }
         setPending((n) => n - 1);
         // Harvesting: each bucket needs its own stem count, so go straight to it.
         if (stemsPerBucket && outcome.counts && !sessionRef.current.stems) stemsRef.current?.focus();
       });
     },
-    [stemsPerBucket, notify],
+    [stemsPerBucket, notify, refocus],
   );
 
   const closeBlocker = () => {
