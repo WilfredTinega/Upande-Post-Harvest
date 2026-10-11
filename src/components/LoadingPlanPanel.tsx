@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@/src/components/Button';
 import { Card } from '@/src/components/Card';
-import type { LoadingPlan, LoadingPlanCustomer } from '@/src/services/scan-api';
+import { HUB_FARM } from '@/src/scan/actions';
+import type { IncomingTruck, LoadingPlan, LoadingPlanCustomer } from '@/src/services/scan-api';
 import { colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 interface Props {
@@ -13,8 +14,13 @@ interface Props {
   removing?: boolean;
   onToggleRemoving?: (on: boolean) => void;
   onRefresh?: () => void;
-  onDispatch?: () => void;
+  /** `wellsFargo`: Burguret's truck goes to Wells Fargo. */
+  onDispatch?: (wellsFargo?: boolean) => void;
   dispatching?: boolean;
+  /** A farm's truck on its way arrived at Burguret: its boxes go onto this truck. */
+  onArrive?: (truck: IncomingTruck) => void;
+  /** The incoming truck's plan whose arrival is being confirmed. */
+  arriving?: string | null;
   /** Plan the delivery date's orders' packed boxes onto the truck in one go. */
   onFetch?: () => void;
   fetching?: boolean;
@@ -31,8 +37,11 @@ export function LoadingPlanPanel({
   dispatching,
   onFetch,
   fetching,
+  onArrive,
+  arriving,
 }: Props) {
   const dispatched = plan.docstatus === 1;
+  const hub = plan.farm === HUB_FARM;
   const allLoaded = plan.total_boxes > 0 && plan.loaded_boxes >= plan.total_boxes;
 
   return (
@@ -41,6 +50,7 @@ export function LoadingPlanPanel({
         <View style={{ flex: 1 }}>
           <Text style={s.title}>
             {plan.name} · {plan.status}
+            {plan.wells_fargo ? ' · Wells Fargo' : ''}
           </Text>
           <Text style={s.sub}>
             {plan.farm ? `${plan.farm} · ` : ''}
@@ -70,6 +80,33 @@ export function LoadingPlanPanel({
           </Pressable>
         ) : null}
       </View>
+
+      {!dispatched && onArrive && plan.incoming?.length ? (
+        <View style={s.incoming}>
+          <Text style={s.byDateTitle}>ON THE WAY TO {HUB_FARM.toUpperCase()}</Text>
+          {plan.incoming.map((t) => (
+            <View key={t.name} style={s.row}>
+              <Ionicons name="bus-outline" size={18} color={colors.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.point} numberOfLines={1}>
+                  {t.vehicle} · {t.farm}
+                </Text>
+                <Text style={s.meta}>
+                  {t.name} · {t.total_boxes} boxes
+                </Text>
+              </View>
+              <Button
+                label="Arrived"
+                iconLeft="checkmark-done-outline"
+                variant="outline"
+                onPress={() => onArrive(t)}
+                loading={arriving === t.name}
+                disabled={!!arriving}
+              />
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {plan.sheet ? (
         plan.sheet.length ? (
@@ -146,7 +183,7 @@ export function LoadingPlanPanel({
               ? 'Dispatch truck'
               : `Load every box first (${plan.loaded_boxes}/${plan.total_boxes} loaded)`
           }
-          onPress={onDispatch}
+          onPress={() => onDispatch(false)}
           disabled={!allLoaded}
           loading={dispatching}
           iconLeft="paper-plane-outline"
@@ -154,7 +191,26 @@ export function LoadingPlanPanel({
         />
       ) : null}
 
+      {mode === 'dispatch' && !dispatched && onDispatch && hub && allLoaded ? (
+        <Button
+          label="Dispatch to Wells Fargo"
+          onPress={() => onDispatch(true)}
+          loading={dispatching}
+          iconLeft="paper-plane-outline"
+          variant="outline"
+          style={{ marginTop: spacing.sm }}
+        />
+      ) : null}
+
       {mode === 'dispatch' && plan.boxes?.length ? <BoxesByDate boxes={plan.boxes} /> : null}
+
+      {dispatched && !hub && plan.farm ? (
+        <Text style={plan.arrived_at_hub ? s.done : s.meta}>
+          {plan.arrived_at_hub
+            ? `Arrived at ${HUB_FARM}${plan.arrived_on ? ` ${plan.arrived_on.slice(0, 16)}` : ''} · boxes on ${plan.hub_plan}`
+            : `On the way to ${HUB_FARM}`}
+        </Text>
+      ) : null}
 
       {dispatched ? (
         <Text style={s.done}>
@@ -269,7 +325,11 @@ function LoadingSheet({ sheet, showLoaded }: { sheet: Sheet; showLoaded: boolean
                           </Text>
                           {b.pending ? (
                             <Text style={s.pendingNote}>
-                              {b.pending === 'unpacked' ? 'not packed yet' : 'packed · fetch to plan it'}
+                              {b.pending === 'unpacked'
+                                ? 'not packed yet'
+                                : b.pending === 'farm'
+                                  ? 'packed · not at Burguret yet'
+                                  : 'packed · fetch to plan it'}
                             </Text>
                           ) : null}
                           {b.combined ? (
@@ -365,6 +425,7 @@ function formatDate(iso: string): string {
 
 const s = StyleSheet.create({
   card: { marginTop: spacing.lg },
+  incoming: { marginBottom: spacing.sm, paddingBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   title: { fontFamily: fontFamily.semiBold, fontSize: fontSize.md, color: colors.text },
   sub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },

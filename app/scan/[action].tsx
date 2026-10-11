@@ -25,6 +25,7 @@ import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import {
   dispatchPlan,
+  HUB_FARM,
   emptySession,
   getAction,
   startLoadingPlan,
@@ -39,7 +40,7 @@ import {
   prefetchList,
   varietiesKey,
 } from '@/src/services/list-cache';
-import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type IncomingTruck, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
@@ -322,22 +323,29 @@ export default function ScanScreen() {
 
   // ── Loading Plan / Dispatch ─────────────────────────────────────────────
   const [dispatching, setDispatching] = useState(false);
-  const onDispatch = () => {
+  const onDispatch = (wellsFargo = false) => {
     const plan = sessionRef.current.plan;
     if (!plan) return;
+    // Boxes not loaded come off the truck for the next one, listed by the farm that packed them.
+    const unloaded = (plan.boxes ?? []).filter((b) => !b.loaded);
+    const byFarm = new Map<string, number>();
+    for (const b of unloaded) byFarm.set(b.farm || plan.farm || '', (byFarm.get(b.farm || plan.farm || '') ?? 0) + 1);
+    const missing = [...byFarm.entries()].map(([f, n]) => (f ? `${f} ${n}` : `${n}`)).join(', ');
+    const toHub = !!plan.farm && plan.farm !== HUB_FARM;
+    const loaded = plan.total_boxes - unloaded.length;
     dialog(
-      'Dispatch truck?',
-      `${plan.vehicle}: ${plan.total_boxes} box(es) to ${plan.customers.length} customer delivery point(s). ` +
-        'This creates one Delivery Note per customer and delivery point, and cannot be undone from the app.',
+      toHub ? `Send truck to ${HUB_FARM}?` : wellsFargo ? 'Dispatch to Wells Fargo?' : 'Dispatch truck?',
+      `${plan.vehicle}: ${loaded} box(es). This creates the customers' Delivery Notes and cannot be undone from the app.` +
+        (unloaded.length ? `\n\n${unloaded.length} box(es) not loaded (${missing}) come off this truck for the next one.` : ''),
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Dispatch',
+          text: unloaded.length ? 'Dispatch without them' : toHub ? 'Send' : wellsFargo ? 'Wells Fargo' : 'Dispatch',
           onPress: () => {
             setDispatching(true);
             enqueue(plan.name, async () => {
               try {
-                return await dispatchPlan(sessionRef.current, update);
+                return await dispatchPlan(sessionRef.current, update, unloaded.length > 0, wellsFargo);
               } finally {
                 setDispatching(false);
                 refocus();
@@ -398,6 +406,36 @@ export default function ScanScreen() {
     } finally {
       setFetching(false);
     }
+  };
+
+  // A farm's truck arrived at Burguret: its boxes go onto the Burguret truck open here.
+  const [arriving, setArriving] = useState<string | null>(null);
+  const onArrive = (truck: IncomingTruck) => {
+    const plan = sessionRef.current.plan;
+    if (!plan) return;
+    dialog(
+      `${truck.vehicle} arrived?`,
+      `${truck.total_boxes} box(es) from ${truck.farm} go onto ${plan.vehicle} (${plan.name}).`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Arrived',
+          onPress: async () => {
+            setArriving(truck.name);
+            try {
+              const r = await scanApi.arriveAtHub(truck.name, plan.name);
+              if (r.success && r.plan) update({ plan: r.plan });
+              notify(r.success ? r.message || `${r.added ?? 0} boxes added` : r.error || 'Could not confirm the arrival', r.success ? 'success' : 'error', 2000, 'center');
+            } catch (err) {
+              notify(userMessage(err, 'Could not confirm the arrival'), 'error', 2000, 'center');
+            } finally {
+              setArriving(null);
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
   };
 
   const refreshPlan = () => {
@@ -941,6 +979,8 @@ export default function ScanScreen() {
               fetching={fetching}
               onDispatch={action.panel === 'dispatch' ? onDispatch : undefined}
               dispatching={dispatching}
+              onArrive={action.panel === 'plan' || action.panel === 'dispatch' ? onArrive : undefined}
+              arriving={arriving}
             />
           ) : null}
         </>
