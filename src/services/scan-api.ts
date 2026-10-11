@@ -110,6 +110,8 @@ export interface OplInfo extends ScanReply {
   delivery_point?: string | null;
   /** Stems packed so far on the farm's draft Farm Pack List, at the desk too. */
   packed_stems?: number;
+  /** Its Farm Pack List is closed: an approved under-pack when packed_stems is short of total_stems. */
+  closed?: 0 | 1;
   /** Bunches packed per box and spec ("box|variety|bunch_uom|stem_length") by this session's scans. */
   packed_specs?: Record<string, number>;
 }
@@ -179,8 +181,12 @@ export interface OpenOpl {
   /** With `with_stock`: how far it is packed, and stems Available for Sale is short to finish it (0 = enough). */
   pack_pct?: number;
   short_stems?: number;
-  /** What it holds per variety, stem length and bunch size, most stems first. */
+  /** Its Farm Pack List is closed (sent for review, under-pack approved or submitted), packed or not. */
+  closed?: 0 | 1;
+  /** What it holds per box, variety, stem length and bunch size: box 1 first, most stems first within a box. */
   varieties?: {
+    /** The OPL's box number. */
+    box_id?: number;
     item_name: string;
     stem_length: string | null;
     bunch_uom: string;
@@ -454,6 +460,14 @@ export interface LoadingPlan {
   consolidated_boxes?: number;
   /** Boxes on the plan already delivered. */
   delivered_boxes?: number;
+  /** Burguret's truck dispatched to Wells Fargo. */
+  wells_fargo?: 0 | 1;
+  /** A farm's truck to Burguret: its arrival confirmed, its boxes moved onto `hub_plan`. */
+  arrived_at_hub?: 0 | 1;
+  arrived_on?: string | null;
+  hub_plan?: string | null;
+  /** On Burguret's truck being planned: the farm trucks on their way for the same day. */
+  incoming?: IncomingTruck[];
   customers: LoadingPlanCustomer[];
   /** The loading sheet: delivery point → customer → consignee, each with its boxes, in loading order. */
   sheet?: {
@@ -468,7 +482,7 @@ export interface LoadingPlan {
       box: string;
       loaded: 0 | 1;
       /** Not on the truck's plan yet: not packed, or packed and waiting for Fetch. */
-      pending?: 'unpacked' | 'packed';
+      pending?: 'unpacked' | 'farm' | 'packed';
       /** Farms whose piece of this box is not packed yet. */
       waiting?: number;
       /** A Consolidated Box Label: its farms ("Burguret / Turaco"), or 1. */
@@ -478,7 +492,24 @@ export interface LoadingPlan {
     }[];
   }[];
   /** Every box on the plan, with its Sales Order's delivery date. */
-  boxes?: { box: string; customer: string; delivery_point?: string | null; loaded: 0 | 1; delivery_date: string }[];
+  boxes?: {
+    box: string;
+    customer: string;
+    delivery_point?: string | null;
+    loaded: 0 | 1;
+    /** The farm that packed it (Burguret's trucks carry every farm's boxes). */
+    farm?: string | null;
+    delivery_date: string;
+  }[];
+}
+
+/** A farm's truck dispatched to Burguret whose arrival is not confirmed yet. */
+export interface IncomingTruck {
+  name: string;
+  vehicle: string;
+  farm: string;
+  total_boxes: number;
+  dispatched_on?: string;
 }
 
 export interface PlanReply extends ScanReply {
@@ -615,7 +646,17 @@ export const scanApi = {
   planBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.plan_box', { plan, box }),
   unplanBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.unplan_box', { plan, box }),
   loadBox: (plan: string, box: string) => callMethod<PlanReply>('dispatch_flow.load_box', { plan, box }),
-  dispatchLoadingPlan: (plan: string) => callMethod<PlanReply>('dispatch_flow.dispatch_loading_plan', { plan }),
+  /** With `leaveUnloaded`, boxes not loaded come off the truck first, for the next one; with
+   * `wellsFargo`, Burguret's truck goes to Wells Fargo. */
+  dispatchLoadingPlan: (plan: string, leaveUnloaded = false, wellsFargo = false) =>
+    callMethod<PlanReply>('dispatch_flow.dispatch_loading_plan', {
+      plan,
+      leave_unloaded: leaveUnloaded ? 1 : 0,
+      wells_fargo: wellsFargo ? 1 : 0,
+    }),
+  /** A farm's truck arrived at Burguret: its boxes go onto Burguret's truck `hubPlan` (returned). */
+  arriveAtHub: (plan: string, hubPlan: string) =>
+    callMethod<PlanReply & { added?: number }>('dispatch_flow.arrive_at_hub', { plan, hub_plan: hubPlan }),
   /** Plan every packed box of tomorrow's orders for the plan's farm onto the truck. */
   fetchOrders: (plan: string) =>
     callMethod<PlanReply & { added?: number; opls?: number }>('dispatch_flow.fetch_orders', { plan }),

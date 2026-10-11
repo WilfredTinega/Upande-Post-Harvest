@@ -25,6 +25,7 @@ import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import {
   dispatchPlan,
+  HUB_FARM,
   emptySession,
   getAction,
   startLoadingPlan,
@@ -39,7 +40,7 @@ import {
   prefetchList,
   varietiesKey,
 } from '@/src/services/list-cache';
-import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type IncomingTruck, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
@@ -322,22 +323,29 @@ export default function ScanScreen() {
 
   // ── Loading Plan / Dispatch ─────────────────────────────────────────────
   const [dispatching, setDispatching] = useState(false);
-  const onDispatch = () => {
+  const onDispatch = (wellsFargo = false) => {
     const plan = sessionRef.current.plan;
     if (!plan) return;
+    // Boxes not loaded come off the truck for the next one, listed by the farm that packed them.
+    const unloaded = (plan.boxes ?? []).filter((b) => !b.loaded);
+    const byFarm = new Map<string, number>();
+    for (const b of unloaded) byFarm.set(b.farm || plan.farm || '', (byFarm.get(b.farm || plan.farm || '') ?? 0) + 1);
+    const missing = [...byFarm.entries()].map(([f, n]) => (f ? `${f} ${n}` : `${n}`)).join(', ');
+    const toHub = !!plan.farm && plan.farm !== HUB_FARM;
+    const loaded = plan.total_boxes - unloaded.length;
     dialog(
-      'Dispatch truck?',
-      `${plan.vehicle}: ${plan.total_boxes} box(es) to ${plan.customers.length} customer delivery point(s). ` +
-        'This creates one Delivery Note per customer and delivery point, and cannot be undone from the app.',
+      toHub ? `Send truck to ${HUB_FARM}?` : wellsFargo ? 'Dispatch to Wells Fargo?' : 'Dispatch truck?',
+      `${plan.vehicle}: ${loaded} box(es). This creates the customers' Delivery Notes and cannot be undone from the app.` +
+        (unloaded.length ? `\n\n${unloaded.length} box(es) not loaded (${missing}) come off this truck for the next one.` : ''),
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Dispatch',
+          text: unloaded.length ? 'Dispatch without them' : toHub ? 'Send' : wellsFargo ? 'Wells Fargo' : 'Dispatch',
           onPress: () => {
             setDispatching(true);
             enqueue(plan.name, async () => {
               try {
-                return await dispatchPlan(sessionRef.current, update);
+                return await dispatchPlan(sessionRef.current, update, unloaded.length > 0, wellsFargo);
               } finally {
                 setDispatching(false);
                 refocus();
@@ -398,6 +406,36 @@ export default function ScanScreen() {
     } finally {
       setFetching(false);
     }
+  };
+
+  // A farm's truck arrived at Burguret: its boxes go onto the Burguret truck open here.
+  const [arriving, setArriving] = useState<string | null>(null);
+  const onArrive = (truck: IncomingTruck) => {
+    const plan = sessionRef.current.plan;
+    if (!plan) return;
+    dialog(
+      `${truck.vehicle} arrived?`,
+      `${truck.total_boxes} box(es) from ${truck.farm} go onto ${plan.vehicle} (${plan.name}).`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Arrived',
+          onPress: async () => {
+            setArriving(truck.name);
+            try {
+              const r = await scanApi.arriveAtHub(truck.name, plan.name);
+              if (r.success && r.plan) update({ plan: r.plan });
+              notify(r.success ? r.message || `${r.added ?? 0} boxes added` : r.error || 'Could not confirm the arrival', r.success ? 'success' : 'error', 2000, 'center');
+            } catch (err) {
+              notify(userMessage(err, 'Could not confirm the arrival'), 'error', 2000, 'center');
+            } finally {
+              setArriving(null);
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
   };
 
   const refreshPlan = () => {
@@ -687,7 +725,9 @@ export default function ScanScreen() {
                             [session.opl.sales_order, session.opl.delivery_point].filter(Boolean).join(' · ') ||
                             undefined,
                           right: session.opl.total_stems
-                            ? `${session.opl.packed_stems ?? 0}/${session.opl.total_stems}`
+                            ? session.opl.closed && (session.opl.packed_stems ?? 0) < session.opl.total_stems
+                              ? `Under-packed · ${session.opl.packed_stems ?? 0}/${session.opl.total_stems}`
+                              : `${session.opl.packed_stems ?? 0}/${session.opl.total_stems}`
                             : undefined,
                         }
                       : null
@@ -701,20 +741,11 @@ export default function ScanScreen() {
                       title: oplTitle(o.opl, o.customer),
                       lead: o.total_stems ? `${o.packed_stems.toLocaleString()} / ${o.total_stems.toLocaleString()} stems` : undefined,
                       sub: [o.sales_order, o.delivery_point].filter(Boolean).join(' · '),
-                      right: `${pct}% packed`,
-                      // Green: packed; amber: being packed; red: not started.
-                      stripe: pct >= 100 ? 'good' : pct > 0 || o.packed_stems > 0 ? 'partial' : 'bad',
-                      table: o.varieties?.length
-                        ? {
-                            columns: ['Variety', 'Length', 'Bunches', 'Stems'],
-                            rows: o.varieties.map((v) => [
-                              v.item_name,
-                              v.stem_length ?? '-',
-                              `${v.bunches} × ${bunchSize(v.bunch_uom)}`,
-                              `${(v.packed_stems ?? 0).toLocaleString()}/${v.stems.toLocaleString()}`,
-                            ]),
-                          }
-                        : undefined,
+                      // Closed short of the order: an approved under-pack, not a full one.
+                      right: o.closed && pct < 100 ? `Under-packed · ${pct}%` : `${pct}% packed`,
+                      // Green: packed or closed; amber: being packed; red: not started.
+                      stripe: pct >= 100 || o.closed ? 'good' : pct > 0 || o.packed_stems > 0 ? 'partial' : 'bad',
+                      table: o.varieties?.length ? varietyTable(o.varieties) : undefined,
                     };
                   }}
                   onPick={(o) =>
@@ -727,6 +758,7 @@ export default function ScanScreen() {
                         total_stems: o.total_stems,
                         packed_stems: o.packed_stems,
                         delivery_point: o.delivery_point,
+                        closed: o.closed,
                       },
                     })
                   }
@@ -947,6 +979,8 @@ export default function ScanScreen() {
               fetching={fetching}
               onDispatch={action.panel === 'dispatch' ? onDispatch : undefined}
               dispatching={dispatching}
+              onArrive={action.panel === 'plan' || action.panel === 'dispatch' ? onArrive : undefined}
+              arriving={arriving}
             />
           ) : null}
         </>
@@ -1002,6 +1036,27 @@ function planLine(p: LoadingPlan): string {
 /** An order as packers know it: "FLORAMONDO - OPL-2026-26033". */
 function oplTitle(opl: string, customer?: string | null): string {
   return customer ? `${customer} - ${opl}` : opl;
+}
+
+/** An OPL's varieties for the picker, under their box numbers in box order. */
+function varietyTable(varieties: NonNullable<OpenOpl['varieties']>) {
+  const cells = (v: (typeof varieties)[number]) => [
+    v.item_name,
+    v.stem_length ?? '-',
+    `${v.bunches} × ${bunchSize(v.bunch_uom)}`,
+    `${(v.packed_stems ?? 0).toLocaleString()}/${v.stems.toLocaleString()}`,
+  ];
+  const columns = ['Variety', 'Length', 'Bunches', 'Stems'];
+  if (!varieties.some((v) => v.box_id)) return { columns, rows: varieties.map(cells) };
+  const boxes = new Map<number, string[][]>();
+  for (const v of varieties) {
+    const box = v.box_id ?? 0;
+    boxes.set(box, [...(boxes.get(box) ?? []), cells(v)]);
+  }
+  const sections = [...boxes.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([box, rows]) => ({ title: box ? `Box ${box}` : 'No box', rows }));
+  return { columns, rows: varieties.map(cells), sections };
 }
 
 /** "Bunch (12)" → "12"; anything else as it is. */

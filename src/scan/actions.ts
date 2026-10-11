@@ -344,21 +344,34 @@ export function startLoadingPlan(
   });
 }
 
+/** The farm every other farm's boxes go to before the Nairobi truck. */
+export const HUB_FARM = 'Burguret';
+
 const allLoaded = (plan: LoadingPlan) => plan.total_boxes > 0 && plan.loaded_boxes >= plan.total_boxes;
 
-/** Dispatch the truck: submits the plan, creating one Delivery Note per customer. */
-export async function dispatchPlan(s: ScanSession, update: Update): Promise<Outcome> {
+/** Dispatch the truck: submits the plan, creating one Delivery Note per customer (on Burguret's
+ * truck, for the boxes that did not leave their farm with one). `leaveUnloaded` takes the boxes
+ * not loaded off it first; `wellsFargo` sends Burguret's truck to Wells Fargo. */
+export async function dispatchPlan(
+  s: ScanSession,
+  update: Update,
+  leaveUnloaded = false,
+  wellsFargo = false,
+): Promise<Outcome> {
   if (!s.plan) return warn('Choose or scan the truck first');
   return run(async () => {
-    const r: PlanReply = await scanApi.dispatchLoadingPlan(s.plan!.name);
+    const r: PlanReply = await scanApi.dispatchLoadingPlan(s.plan!.name, leaveUnloaded, wellsFargo);
     if (!r.success || !r.plan) return fail(r.error || 'Dispatch failed');
     update({ plan: r.plan });
     const notes = r.plan.customers.map((c) => c.delivery_note).filter(Boolean);
     const invoices = r.plan.customers.map((c) => c.sales_invoice).filter(Boolean);
     return ok(
-      `Truck ${r.plan.vehicle} dispatched`,
-      `${notes.length} Delivery Note(s), one per customer and delivery point` +
-        (invoices.length ? ` · ${invoices.length} draft Sales Invoice(s)` : ''),
+      r.plan.farm && r.plan.farm !== HUB_FARM
+        ? `Truck ${r.plan.vehicle} sent to ${HUB_FARM}`
+        : r.plan.wells_fargo
+          ? `Truck ${r.plan.vehicle} dispatched to Wells Fargo`
+          : `Truck ${r.plan.vehicle} dispatched`,
+      `${notes.length} Delivery Note(s)` + (invoices.length ? ` · ${invoices.length} draft Sales Invoice(s)` : ''),
     );
   });
 }
