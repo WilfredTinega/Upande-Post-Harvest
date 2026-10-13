@@ -503,7 +503,7 @@ export interface LoadingPlan {
   }[];
 }
 
-/** A farm's truck dispatched to Burguret whose arrival is not confirmed yet. */
+/** A farm truck on its way to Burguret: a farm's Dispatch Form to Burguret, or an older farm Loading Plan (`name`). */
 export interface IncomingTruck {
   name: string;
   vehicle: string;

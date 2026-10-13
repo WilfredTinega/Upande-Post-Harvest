@@ -42,7 +42,7 @@ import {
   prefetchList,
   varietiesKey,
 } from '@/src/services/list-cache';
-import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type IncomingTruck, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
@@ -409,6 +409,36 @@ export default function ScanScreen() {
     } finally {
       setFetching(false);
     }
+  };
+
+  // A farm's truck arrived at Burguret: its boxes go onto the Burguret truck open here.
+  const [arriving, setArriving] = useState<string | null>(null);
+  const onArrive = (truck: IncomingTruck) => {
+    const plan = sessionRef.current.plan;
+    if (!plan) return;
+    dialog(
+      `${truck.vehicle} arrived?`,
+      `${truck.total_boxes} box(es) from ${truck.farm} go onto ${plan.vehicle} (${plan.name}).`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Arrived',
+          onPress: async () => {
+            setArriving(truck.name);
+            try {
+              const r = await scanApi.arriveAtHub(truck.name, plan.name);
+              if (r.success && r.plan) update({ plan: r.plan });
+              notify(r.success ? r.message || `${r.added ?? 0} boxes added` : r.error || 'Could not confirm the arrival', r.success ? 'success' : 'error', 2000, 'center');
+            } catch (err) {
+              notify(userMessage(err, 'Could not confirm the arrival'), 'error', 2000, 'center');
+            } finally {
+              setArriving(null);
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
   };
 
   const refreshPlan = () => {
@@ -953,6 +983,8 @@ export default function ScanScreen() {
               fetching={fetching}
               onDispatch={action.panel === 'dispatch' ? onDispatch : undefined}
               dispatching={dispatching}
+              onArrive={action.panel === 'plan' || action.panel === 'dispatch' ? onArrive : undefined}
+              arriving={arriving}
             />
           ) : null}
         </>
