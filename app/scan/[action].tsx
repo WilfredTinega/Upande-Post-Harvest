@@ -27,6 +27,7 @@ import {
   dismissAfter,
   dispatchPlan,
   HUB_FARM,
+  atStation,
   emptySession,
   getAction,
   startLoadingPlan,
@@ -471,9 +472,10 @@ export default function ScanScreen() {
     [farm],
   );
 
+  // Gone, or not used at this farm (Loading Plans are Burguret's; other farms use the Dispatch Form).
   useEffect(() => {
-    if (!action) router.back();
-  }, [action, router]);
+    if (!action || !atStation(action, farm)) router.back();
+  }, [action, farm, router]);
 
   if (!action) return null;
 

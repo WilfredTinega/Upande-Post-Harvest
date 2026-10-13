@@ -124,6 +124,7 @@ export type ActionKey =
   | 'packing-reject'
   | 'loading'
   | 'new-loading-plan'
+  | 'dispatch-form'
   | 'undispatch'
   | 'delivery';
 
@@ -153,6 +154,8 @@ export interface ActionDef {
   requirements: Requirement[];
   /** Opens on the truck list to start a loading plan (New Loading Plan). */
   startsPlan?: boolean;
+  /** Only at Burguret ('hub'), or only at the other farms ('farms'); every farm when unset. */
+  station?: 'hub' | 'farms';
   /** The variety picker lists only what was harvested into the greenhouse today. */
   harvestedVarietiesOnly?: boolean;
   /** A scan that may go out alongside the ones before it instead of waiting its turn, as the
@@ -792,6 +795,7 @@ export const ACTIONS: ActionDef[] = [
     group: DISPATCH,
     icon: 'paper-plane-outline',
     needsFarm: true,
+    station: 'hub',
     requirements: ['truckPick'],
     panel: 'dispatch',
     prompt: (s) =>
@@ -849,6 +853,34 @@ export const ACTIONS: ActionDef[] = [
           return ok(`Delivered: ${r.progress}`, `${r.box_name} · ${r.delivery_form}`);
         }
         return rejected(r, [['already delivered', 'warning']]);
+      }),
+  },
+  {
+    key: 'dispatch-form',
+    label: 'Load & Dispatch',
+    description: 'Scan the truck, then each box onto its Dispatch Form',
+    group: DISPATCH,
+    icon: 'paper-plane-outline',
+    needsFarm: true,
+    station: 'farms',
+    requirements: ['truck'],
+    prompt: (s) => (s.truck ? 'Scan each box as it goes onto the truck' : 'Scan the Truck Label'),
+    handle: (code, s, update) =>
+      run(async () => {
+        if (!s.truck) {
+          const truck = parseTruck(code);
+          if (!truck) return warn('Please scan the Truck Label first');
+          update({ truck });
+          return info(`Truck ${truck}`, 'Now scan the boxes');
+        }
+        if (parseTruck(code)) return warn('Truck already set', 'Clear the truck to load another one');
+        if (!isBoxLabel(code)) return warn('Invalid Box Label!');
+        const r = await scanApi.dispatch(s.truck, code.trim(), s.farm);
+        if (r.success) return ok(`Loaded ${code.trim()}`, [r.progress, r.dispatch_form].filter(Boolean).join(' · '));
+        return rejected(r, [
+          ['already loaded', 'warning', 'Box already loaded'],
+          ['already dispatched', 'warning', 'Box already dispatched'],
+        ]);
       }),
   },
   {
@@ -1042,7 +1074,14 @@ export function getAction(key: string | undefined): ActionDef | undefined {
   return ACTIONS.find((a) => a.key === key);
 }
 
-/** The actions of the given processes. */
-export function actionsFor(processes: ProcessKey[]): ActionDef[] {
-  return ACTIONS.filter((a) => processes.includes(a.group));
+/** Whether the action is used at `farm`: Burguret loads trucks by Loading Plan, the other
+ *  farms scan boxes straight onto the truck's Dispatch Form. Before a farm is chosen, Burguret's. */
+export function atStation(a: ActionDef, farm: string): boolean {
+  if (!a.station) return true;
+  return (a.station === 'hub') === (!farm || farm === HUB_FARM);
+}
+
+/** The actions of the given processes, at `farm`. */
+export function actionsFor(processes: ProcessKey[], farm: string): ActionDef[] {
+  return ACTIONS.filter((a) => processes.includes(a.group) && atStation(a, farm));
 }
