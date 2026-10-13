@@ -1,13 +1,13 @@
 {
-  "id": "0003bca6-bd55-46b9-9794-28bb0725ae97",
-  "createdAt": "2026-10-13T06:26:06.682Z",
+  "id": "838f9941-2e34-4f66-ba7f-e9b693d6c719",
+  "createdAt": "2026-10-13T21:52:33.455Z",
   "runtimeVersion": "1.1",
   "launchAsset": {
-    "hash": "WCYhLhZI0XcbpUrfOSKByss0SLvqPF6lVgH4U2z9Ewg",
-    "key": "entry-4d5aab590ce7aa274e9229f807be0eac",
+    "hash": "ItH-kFSlo38eYQENKc7dagjBn61gVSTPC6BA27AHw90",
+    "key": "entry-f89732e09a9c6bbd8907263595b266cd",
     "contentType": "application/javascript",
     "fileExtension": ".hbc",
-    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/_expo/static/js/android/entry-4d5aab590ce7aa274e9229f807be0eac.hbc"
+    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/_expo/static/js/android/entry-f89732e09a9c6bbd8907263595b266cd.hbc"
   },
   "assets": [
     {
@@ -585,32 +585,18 @@
       "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/assets/1681f34aaca71b8dfb70756bca331eb2"
     },
     {
-      "hash": "_vOOg95noJZJSzsK5_wOWlqE31nPoePqZf1dBllen4o",
-      "key": "e43e76d7d97456ff8a8ecac5f30a5d28",
-      "contentType": "application/octet-stream",
-      "fileExtension": ".mp3",
-      "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/assets/e43e76d7d97456ff8a8ecac5f30a5d28"
-    },
-    {
-      "hash": "gOunPrCZgtPGys_SHD73JFHabfTv5tI7IjzS0cL2Ccw",
-      "key": "bc2263df2d3a42359e5343bc066c746c",
-      "contentType": "application/octet-stream",
-      "fileExtension": ".mp3",
-      "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/assets/bc2263df2d3a42359e5343bc066c746c"
-    },
-    {
-      "hash": "TbjEU6WT8Puc_Ui_GQFpfwqpkVl1uzZ8bfaxEZ6KFwE",
-      "key": "fdb28133158efaf18814b5dadfc8f504",
-      "contentType": "application/octet-stream",
-      "fileExtension": ".mp3",
-      "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/assets/fdb28133158efaf18814b5dadfc8f504"
-    },
-    {
       "hash": "s132WorAHinNMrWZskIsOJ47WcZZfWQ5fEXqOp67Elg",
       "key": "d18e9d6a56e6d8e334843d3c51103e90",
       "contentType": "application/octet-stream",
       "fileExtension": ".png",
       "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/assets/d18e9d6a56e6d8e334843d3c51103e90"
+    },
+    {
+      "hash": "_vOOg95noJZJSzsK5_wOWlqE31nPoePqZf1dBllen4o",
+      "key": "e43e76d7d97456ff8a8ecac5f30a5d28",
+      "contentType": "application/octet-stream",
+      "fileExtension": ".mp3",
+      "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/assets/e43e76d7d97456ff8a8ecac5f30a5d28"
     }
   ],
   "metadata": {},
@@ -618,7 +604,7 @@
     "expoClient": {
       "name": "Upande Post Harvest",
       "slug": "post-harvest",
-      "version": "1.1.8",
+      "version": "1.1.9",
       "orientation": "portrait",
       "icon": "./assets/images/icon.png",
       "scheme": "postharvest",
@@ -659,7 +645,7 @@
         "blockedPermissions": [
           "android.permission.RECORD_AUDIO"
         ],
-        "versionCode": 5108
+        "versionCode": 5109
       },
       "plugins": [
         "./plugins/withReleaseSigning",
@@ -729,7 +715,7 @@
       },
       "sdkVersion": "57.0.0"
     },
-    "appVersion": "1.1.8",
-    "publishedAt": "2026-10-13T06:26:06.708Z"
+    "appVersion": "1.1.9",
+    "publishedAt": "2026-10-13T21:52:33.477Z"
   }
 }
