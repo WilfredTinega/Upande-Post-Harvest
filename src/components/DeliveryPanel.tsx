@@ -101,7 +101,7 @@ export function DeliveryPanel({ date, version }: Props) {
                       size={18}
                       color={b.delivered ? colors.success : colors.warning}
                     />
-                    <Text style={[s.box, b.delivered && s.boxDone]} numberOfLines={1}>
+                    <Text style={[s.box, !!b.delivered && s.boxDone]} numberOfLines={1}>
                       {b.box}
                     </Text>
                     {b.consignee ? (
