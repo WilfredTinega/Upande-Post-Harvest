@@ -615,6 +615,9 @@ export const scanApi = {
   packingReject: (scan_data: string, farm: string, rejection_reason: string, graded_by?: string) =>
     callMethod<ScanReply>('bunch_actions.packing_reject', { scan_data, farm, rejection_reason, graded_by }),
 
+  /** A farm's box onto its truck's Dispatch Form (farms other than Burguret: no Loading Plan). */
+  dispatch: (vehicle: string, box_name: string, farm: string) =>
+    callMethod<ScanReply>('dispatch_form.create_dispatch_form', { vehicle, box_name, farm }),
   undispatch: (box: string, reason: string) => callMethod<ScanReply>('undispatch_box.undispatch_box', { box, reason }),
   delivery: (box_name: string, farm: string) => callMethod<ScanReply>('delivery_form.delivery_form', { box_name, farm }),
   /** Delivery points with boxes on their way (all farms), most still to deliver first. */

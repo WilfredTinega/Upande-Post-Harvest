@@ -5,7 +5,7 @@ import { ProcessOverview } from '@/src/components/ProcessOverview';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
 import { PackhouseSummary } from '@/src/components/PackhouseSummary';
 import { ProductionSummary } from '@/src/components/ProductionSummary';
-import { ACTIONS, type ActionDef } from '@/src/scan/actions';
+import { ACTIONS, atStation, type ActionDef } from '@/src/scan/actions';
 import { PROCESSES, type ProcessKey } from '@/src/scan/processes';
 import type { Overview } from '@/src/services/scan-api';
 import { colors, fontFamily, fontSize, shadow, spacing } from '@/src/theme';
@@ -25,7 +25,7 @@ interface Props {
 /** The same landing for every process: today's figures, then its action tiles. */
 export function ProcessLanding({ process, farm, overview, loading, error, onRetry, showLabel, onOpen }: Props) {
   const label = PROCESSES.find((p) => p.key === process)?.label ?? process;
-  const actions = ACTIONS.filter((a) => a.group === process);
+  const actions = ACTIONS.filter((a) => a.group === process && atStation(a, farm));
   // One or two shortcuts take the full width.
   const wide = actions.length <= 2;
 

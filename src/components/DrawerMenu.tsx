@@ -91,7 +91,7 @@ export function DrawerMenu() {
       router.replace('/login');
     });
 
-  const actions = actionsFor(processes);
+  const actions = actionsFor(processes, farm);
   const groups = PROCESSES.filter((p) => actions.some((a) => a.group === p.key));
   const initials =
     (fullName || email || '?')
