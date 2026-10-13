@@ -5,7 +5,7 @@ import { ProcessOverview } from '@/src/components/ProcessOverview';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
 import { PackhouseSummary } from '@/src/components/PackhouseSummary';
 import { ProductionSummary } from '@/src/components/ProductionSummary';
-import { ACTIONS, atStation, type ActionDef } from '@/src/scan/actions';
+import { ACTIONS, atStation, HUB_FARM, type ActionDef } from '@/src/scan/actions';
 import { PROCESSES, type ProcessKey } from '@/src/scan/processes';
 import type { Overview } from '@/src/services/scan-api';
 import { colors, fontFamily, fontSize, shadow, spacing } from '@/src/theme';
@@ -33,7 +33,10 @@ export function ProcessLanding({ process, farm, overview, loading, error, onRetr
     <View style={s.section}>
       {showLabel ? <Text style={s.label}>{label.toUpperCase()}</Text> : null}
       {process === 'delivery' ? <DeliveryDateFilter /> : null}
-      {farm ? <ProcessOverview process={process} farm={farm} overview={overview} loading={loading} error={error} onRetry={onRetry} /> : null}
+      {/* Dispatch figures are Loading Plan figures: only Burguret loads by plan. */}
+      {farm && !(process === 'dispatch' && farm !== HUB_FARM) ? (
+        <ProcessOverview process={process} farm={farm} overview={overview} loading={loading} error={error} onRetry={onRetry} />
+      ) : null}
       <View style={s.grid}>
         {actions.map((a) => {
           const blocked = a.needsFarm && !farm;

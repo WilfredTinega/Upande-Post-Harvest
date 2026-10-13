@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@/src/components/Button';
 import { Card } from '@/src/components/Card';
 import { HUB_FARM } from '@/src/scan/actions';
-import type { IncomingTruck, LoadingPlan, LoadingPlanCustomer } from '@/src/services/scan-api';
+import type { LoadingPlan, LoadingPlanCustomer } from '@/src/services/scan-api';
 import { colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 interface Props {
@@ -17,10 +17,6 @@ interface Props {
   /** `wellsFargo`: Burguret's truck goes to Wells Fargo. */
   onDispatch?: (wellsFargo?: boolean) => void;
   dispatching?: boolean;
-  /** A farm's truck on its way arrived at Burguret: its boxes go onto this truck. */
-  onArrive?: (truck: IncomingTruck) => void;
-  /** The incoming truck's plan whose arrival is being confirmed. */
-  arriving?: string | null;
   /** Plan the delivery date's orders' packed boxes onto the truck in one go. */
   onFetch?: () => void;
   fetching?: boolean;
@@ -37,8 +33,6 @@ export function LoadingPlanPanel({
   dispatching,
   onFetch,
   fetching,
-  onArrive,
-  arriving,
 }: Props) {
   const dispatched = plan.docstatus === 1;
   const hub = plan.farm === HUB_FARM;
@@ -80,33 +74,6 @@ export function LoadingPlanPanel({
           </Pressable>
         ) : null}
       </View>
-
-      {!dispatched && onArrive && plan.incoming?.length ? (
-        <View style={s.incoming}>
-          <Text style={s.byDateTitle}>ON THE WAY TO {HUB_FARM.toUpperCase()}</Text>
-          {plan.incoming.map((t) => (
-            <View key={t.name} style={s.row}>
-              <Ionicons name="bus-outline" size={18} color={colors.textSecondary} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.point} numberOfLines={1}>
-                  {t.vehicle} · {t.farm}
-                </Text>
-                <Text style={s.meta}>
-                  {t.name} · {t.total_boxes} boxes
-                </Text>
-              </View>
-              <Button
-                label="Arrived"
-                iconLeft="checkmark-done-outline"
-                variant="outline"
-                onPress={() => onArrive(t)}
-                loading={arriving === t.name}
-                disabled={!!arriving}
-              />
-            </View>
-          ))}
-        </View>
-      ) : null}
 
       {plan.sheet ? (
         plan.sheet.length ? (
@@ -425,7 +392,6 @@ function formatDate(iso: string): string {
 
 const s = StyleSheet.create({
   card: { marginTop: spacing.lg },
-  incoming: { marginBottom: spacing.sm, paddingBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   title: { fontFamily: fontFamily.semiBold, fontSize: fontSize.md, color: colors.text },
   sub: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
