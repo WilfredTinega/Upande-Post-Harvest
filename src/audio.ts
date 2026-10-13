@@ -2,8 +2,6 @@ import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 
 const sources = {
   beep: require('@/assets/audio/beep.mp3'),
-  submit: require('@/assets/audio/submit.mp3'),
-  error: require('@/assets/audio/error.mp3'),
 } as const;
 
 type SoundKey = keyof typeof sources;
@@ -31,6 +29,4 @@ function play(key: SoundKey) {
 
 export const audio = {
   beep: () => play('beep'),
-  submit: () => play('submit'),
-  error: () => play('error'),
 };

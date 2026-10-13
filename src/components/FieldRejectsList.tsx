@@ -67,18 +67,18 @@ export function FieldRejectsList({ farm }: Props) {
   const submit = async () => {
     setBusy(true);
     try {
-      const r = await scanApi.submitFieldRejects(farm, lines);
+      // The same list sent again (its reply was lost) is matched, not recorded twice.
+      const submission = lines.every((l) => l.uid) ? lines.map((l) => l.uid).join(',') : undefined;
+      const r = await scanApi.submitFieldRejects(farm, lines, submission);
       if (r.success) {
         audio.beep();
         notify(`${lines.length} rejects submitted · ${stems.toLocaleString()} stems`, 'success', 2000, 'center');
         change([]);
       } else {
-        audio.error();
         setBadRow(r.row ? r.row - 1 : null);
         notify(r.error || 'Could not submit the rejects', 'error', 3000, 'center');
       }
     } catch (err) {
-      audio.error();
       notify(userMessage(err, 'Could not submit the rejects'), 'error', 3000, 'center');
     } finally {
       setBusy(false);

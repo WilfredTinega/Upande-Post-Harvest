@@ -37,10 +37,18 @@ interface ScanState {
    * as its variant for that length, a plain item with the length on the Stock Entry.
    */
   harvestByStemLength: boolean;
+  /** The greenhouse Harvesting scans into, at this farm, persisted across launches. */
+  greenhouse: string;
 
   hydrate: () => Promise<void>;
   load: () => Promise<void>;
   setFarm: (farm: string) => Promise<void>;
+  setGreenhouse: (greenhouse: string) => Promise<void>;
+}
+
+/** The farm and the greenhouse/block are chosen before the home screen opens. */
+export function setupComplete(s: Pick<ScanState, 'farm' | 'greenhouse'>): boolean {
+  return !!s.farm && !!s.greenhouse;
 }
 
 function parseList(raw: string | null): string[] {
@@ -68,12 +76,14 @@ export const useScanStore = create<ScanState>((set, get) => ({
   processes: [],
   // Until the server says otherwise (Post Harvest Settings).
   harvestByStemLength: true,
+  greenhouse: '',
 
   hydrate: async () => {
     if (get().hydrated) return;
     try {
-      const [farm, processes, cached, byStemLength] = await Promise.all([
+      const [farm, greenhouse, processes, cached, byStemLength] = await Promise.all([
         storage.get(StorageKeys.farm),
+        storage.get(StorageKeys.greenhouse),
         storage.get(StorageKeys.processes),
         storage.get(StorageKeys.farmsCache),
         storage.get(StorageKeys.harvestByStemLength),
@@ -81,6 +91,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
       const cachedFarms = parseList(cached);
       set({
         farm: get().farm || farm || '',
+        greenhouse: get().greenhouse || greenhouse || '',
         processes: get().processes.length ? get().processes : parseList(processes).filter(isProcessKey),
         harvestByStemLength: byStemLength !== '0',
         ...(cachedFarms.length && get().farmsSource !== 'server'
@@ -150,7 +161,14 @@ export const useScanStore = create<ScanState>((set, get) => ({
   },
 
   setFarm: async (farm) => {
-    set({ farm });
-    await storage.set(StorageKeys.farm, farm);
+    // A greenhouse belongs to one farm.
+    const greenhouse = farm === get().farm ? get().greenhouse : '';
+    set({ farm, greenhouse });
+    await Promise.all([storage.set(StorageKeys.farm, farm), storage.set(StorageKeys.greenhouse, greenhouse)]);
+  },
+
+  setGreenhouse: async (greenhouse) => {
+    set({ greenhouse });
+    await storage.set(StorageKeys.greenhouse, greenhouse);
   },
 }));

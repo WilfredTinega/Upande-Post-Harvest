@@ -143,7 +143,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   forgetDevice: async () => {
     // The station farm belongs to the device, so it survives; the processes are the
     // signed-in user's and come again with the next sign-in.
-    await storage.clearExcept([StorageKeys.farm, StorageKeys.farmsCache]);
+    await storage.clearExcept([StorageKeys.farm, StorageKeys.greenhouse, StorageKeys.farmsCache, StorageKeys.walkInOutbox]);
     set({
       hasSession: false,
       biometricEnabled: false,

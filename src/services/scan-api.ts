@@ -9,11 +9,18 @@ import { endpoint } from './api-module';
  * (`frappe.throw`), which surfaces here as an HttpError carrying the message.
  */
 
+/** A sale's order and invoice, or their cancelling, can take the server well past the usual 30 s. */
+const SLOW_WRITE_MS = 180000;
+
 /** POST a whitelisted method and return its `message`. Throws HttpError on transport/server errors. */
-export async function callMethod<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
+export async function callMethod<T>(
+  method: string,
+  args: Record<string, unknown> = {},
+  options: { timeout?: number } = {},
+): Promise<T> {
   try {
     const { path, args: route } = endpoint(method);
-    const res = await apiClient().post(path, { ...args, ...route });
+    const res = await apiClient().post(path, { ...args, ...route }, options.timeout ? { timeout: options.timeout } : undefined);
     return (res.data?.message ?? res.data) as T;
   } catch (err) {
     throw mapAxiosError(err);
@@ -144,6 +151,59 @@ export interface FieldRejectLine {
   reason: string;
   bed: string;
   stems: number;
+  /** Set when the line is added: the list's lines together name one submission. */
+  uid?: string;
+}
+
+/** A bunch on the walk-in (cash) sale, priced, waiting until the sale is submitted. */
+export interface WalkInSaleLine {
+  bunch_id: string;
+  farm: string;
+  variety: string;
+  item_name: string;
+  stem_length: string;
+  bunch_size: string;
+  stems: number;
+  /** Per stem. */
+  rate: number;
+  amount: number;
+  /** The shop store it sells from. */
+  warehouse: string;
+  /** On the list from its QR at once, while the server checks and prices it. */
+  pending?: boolean;
+}
+
+/** A shop Sales Order or Sales Invoice on the day (TAMBUZI SHOP). */
+export interface ShopSale {
+  name: string;
+  /** The walk-in customer's name when the desk took it, else "Walk-in customer". */
+  customer: string;
+  /** The day's sale number (#1 is the day's first order); an invoice takes its order's. */
+  number: number;
+  /** An invoice's Sales Order. */
+  order?: string;
+  /** HH:MM it was made. */
+  time: string;
+  created: string;
+  bunches: number;
+  stems: number;
+  amount: number;
+  currency: string;
+  /** "Draft" for an invoice not submitted yet. */
+  status: string;
+  by: string;
+}
+
+export interface ShopSaleDetail extends ScanReply {
+  name: string;
+  time: string;
+  status: string;
+  currency: string;
+  amount: number;
+  tax: number;
+  bunches: number;
+  stems: number;
+  lines: { variety: string; stem_length: string; bunch_size: string; bunches: number; stems: number; amount: number; store: string }[];
 }
 
 /** One spec to pack on an OPL: a packing scan must match its variety, bunch size and stem length. */
@@ -265,11 +325,17 @@ export interface Overview extends ScanReply {
   dispatch?: {
     opls_to_pack: number;
     stems_to_pack: number;
-    staged_boxes: number | null;
-    trucks_loading: number;
-    boxes_planned: number;
-    boxes_loaded: number;
-    trucks_dispatched: number;
+    staged_boxes?: number | null;
+    trucks_loading?: number;
+    boxes_planned?: number;
+    boxes_loaded?: number;
+    trucks_dispatched?: number;
+    /** Farms other than Burguret (Dispatch Form, no Loading Plan): boxes for `delivery_date` (tomorrow). */
+    delivery_date?: string;
+    farm_boxes_packed?: number;
+    farm_boxes_loaded?: number;
+    farm_trucks_loading?: number;
+    farm_trucks_dispatched?: number;
   } | null;
   shop?: ShopOverview | null;
   quality?: QualityOverview | null;
@@ -367,6 +433,7 @@ export interface DeliveryBox {
   box: string;
   customer: string;
   consignee: string | null;
+  delivery_point?: string | null;
   delivered: 0 | 1;
   status?: 'delivered' | 'on_truck' | 'not_loaded';
 }
@@ -562,11 +629,55 @@ export const scanApi = {
   editHarvestedBucket: (args: EditHarvestArgs) =>
     callMethod<HarvestedBucketReply>('harvesting.edit_harvested_bucket', { ...args }),
   /** The Field Rejects list, recorded together: all of it or, on an error, none. */
-  submitFieldRejects: (farm: string, rows: FieldRejectLine[]) =>
-    callMethod<ScanReply & { entries?: number; stems?: number; row?: number }>('harvesting.submit_field_rejects', {
-      farm,
-      rows: JSON.stringify(rows),
-    }),
+  /** The bunches a walk-in sale can sell: bunch id → [farm, shop store]. */
+  walkInStock: () => callMethod<ScanReply & { bunches?: Record<string, [string, string]> }>('shop.walk_in_stock', {}),
+  /** TAMBUZI SHOP's prices: per-stem price by item group (and stem length), and each variety's group. */
+  walkInPrices: () =>
+    callMethod<ScanReply & { groups?: Record<string, { stem_length: string; price: number }[]>; items?: Record<string, string> }>(
+      'shop.walk_in_prices',
+      {},
+    ),
+  /** A bunch for the walk-in sale: in a shop store, unsold, and its price (nothing is written). */
+  walkInSaleCheck: (scanData: string) =>
+    callMethod<ScanReply & Partial<WalkInSaleLine>>('shop.walk_in_sale_check', { scan_data: scanData }),
+  /** The listed bunches sold: Sales Order, paid Sales Invoice and Scan Sold. `submission` keeps a resend from selling twice. */
+  walkInSaleSubmit: (rows: WalkInSaleLine[], submission: string) =>
+    callMethod<
+      ScanReply & {
+        sales_order?: string;
+        sales_invoice?: string;
+        total?: number;
+        currency?: string;
+        already?: boolean;
+        bunch_id?: string;
+        number?: number;
+        customer?: string;
+      }
+    >('shop.walk_in_sale_submit', { rows: JSON.stringify(rows), submission }, { timeout: SLOW_WRITE_MS }),
+  /** The shop's Sales Orders and Sales Invoices on `date` (default today), and the submitted invoices' totals. */
+  shopSales: (date?: string) =>
+    callMethod<ScanReply & { orders?: ShopSale[]; invoices?: ShopSale[]; count?: number; amount?: number; stems?: number }>(
+      'shop.walk_in_sales_today',
+      date ? { date } : {},
+    ),
+  /** One shop Sales Order (`so`) or Sales Invoice (`si`), line by line. */
+  shopSaleDetail: (kind: 'so' | 'si', name: string) => callMethod<ShopSaleDetail>('shop.walk_in_sale_detail', { kind, name }),
+  /** Cancel a shop sale with a reason: its invoices and order are cancelled and the flowers go back to their shop stores. */
+  shopCancelSale: (kind: 'so' | 'si', name: string, reason: string) =>
+    callMethod<ScanReply & { cancelled?: string[]; released?: number; message?: string }>(
+      'shop.walk_in_sale_cancel',
+      { kind, name, reason },
+      { timeout: SLOW_WRITE_MS },
+    ),
+  /** Submit a shop draft order, or a draft invoice as a cash sale (paid in full). */
+  shopSubmitDraft: (kind: 'so' | 'si', name: string) =>
+    callMethod<ScanReply & { name?: string; status?: string; amount?: number }>('shop.walk_in_sale_submit_draft', { kind, name }),
+  /** `submission` names the list: sent again after a lost reply, it is not recorded twice. */
+  submitFieldRejects: (farm: string, rows: FieldRejectLine[], submission?: string) =>
+    callMethod<ScanReply & { entries?: number; stems?: number; row?: number; already?: boolean }>(
+      'harvesting.submit_field_rejects',
+      { farm, rows: JSON.stringify(rows), ...(submission ? { submission } : {}) },
+    ),
   fieldRejects: (farm: string, greenhouse: string, item_code: string, stems: number, reason: string) =>
     callMethod<ScanReply>('harvesting.field_rejects', { farm, greenhouse, item_code, stems, reason }),
 
@@ -626,6 +737,9 @@ export const scanApi = {
   /** The boxes going to a delivery point (all farms), customer by customer. */
   pointBoxes: (delivery_point: string, date: string) =>
     callMethod<ScanReply & { boxes?: DeliveryBox[] }>('delivery_form.point_boxes', { delivery_point, date }),
+  /** Every delivery point's boxes that left Burguret for Nairobi (on a truck or delivered). */
+  loadedBoxes: (date: string) =>
+    callMethod<ScanReply & { boxes?: DeliveryBox[] }>('delivery_form.point_boxes', { date, loaded: 1 }),
 
   // Packing -> Dispatch: staging, loading plan, loading, dispatch
   /** The truck's open plan for the farm; with `deliveryDate`, the one delivering that day (created as LP-<date>-<nn>). */

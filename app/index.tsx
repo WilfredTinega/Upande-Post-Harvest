@@ -23,6 +23,7 @@ import { useAuthStore } from '@/src/stores/authStore';
 import { useNetworkStore } from '@/src/stores/networkStore';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
+import { useWalkInOutbox } from '@/src/stores/walkInOutbox';
 import { warmHarvestLists, warmPackhouseLists } from '@/src/services/list-cache';
 import { type ActionDef } from '@/src/scan/actions';
 import { PROCESSES, type ProcessDef } from '@/src/scan/processes';
@@ -43,6 +44,11 @@ export default function StartScreen() {
   const { farms, farmsSource, farmsNotice, farm, processes, load, loading, error } = useScanStore();
   const { overview, loading: overviewLoading, error: overviewError, reload } = useOverview(farm);
 
+  // Walk-in sales still on the phone carry on going to the server.
+  useEffect(() => {
+    useWalkInOutbox.getState().hydrate();
+  }, []);
+
   useEffect(() => {
     load();
     // Back in the foreground: the setup again, so a log-out from Post Harvest Settings lands.
@@ -54,11 +60,12 @@ export default function StartScreen() {
 
   // Warm the harvesting lists in the background, so those screens and pickers open at once.
   const harvestByStemLength = useScanStore((s) => s.harvestByStemLength);
+  const greenhouse = useScanStore((s) => s.greenhouse);
   // Harvesting and field rejects belong to Production.
   const harvests = processes.includes('production');
   useEffect(() => {
-    if (farm && harvests) warmHarvestLists(farm, harvestByStemLength);
-  }, [farm, harvests, harvestByStemLength]);
+    if (farm && harvests) warmHarvestLists(farm, harvestByStemLength, greenhouse);
+  }, [farm, harvests, harvestByStemLength, greenhouse]);
   const packs = processes.includes('packhouse');
   useEffect(() => {
     if (farm && packs) warmPackhouseLists(farm);
@@ -101,18 +108,6 @@ export default function StartScreen() {
 
   const unknownFarm = !!farm && farmsSource === 'server' && !farms.includes(farm);
   const needsSetup = !farm || unknownFarm;
-
-  // The farm is chosen in Settings: a scanner without one goes straight there
-  // after sign-in, once.
-  const scannerHydrated = useScanStore((s) => s.hydrated);
-  const sentToSetup = useRef(false);
-  useEffect(() => {
-    if (!scannerHydrated || sentToSetup.current) return;
-    if (!farm) {
-      sentToSetup.current = true;
-      router.push('/settings');
-    }
-  }, [scannerHydrated, farm, router]);
 
   const top = (
     <View>

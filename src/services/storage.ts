@@ -14,10 +14,18 @@ export const StorageKeys = {
   processes: 'processes',
   // Harvesting asks for the stem length per bucket ('1' / '0').
   harvestByStemLength: 'harvest_by_stem_length',
+  // The greenhouse Harvesting scans into, at the station farm.
+  greenhouse: 'greenhouse',
   // Farm list from the last successful setup load, offered before sign-in.
   farmsCache: 'farms_cache',
   // Field Rejects lists not submitted yet, per farm (JSON {farm: FieldRejectLine[]}).
   fieldRejects: 'field_rejects',
+  // The walk-in sale's bunches not submitted yet (JSON WalkInSaleLine[]).
+  walkInSale: 'walk_in_sale',
+  // What the walk-in sale checks scans against, from the last load (JSON {prices, stock}).
+  walkInData: 'walk_in_data',
+  // Walk-in sales submitted on the phone, still going to the server (JSON OutboxSale[]).
+  walkInOutbox: 'walk_in_outbox',
   biometricEnabled: 'biometric_enabled',
   // The log-out mark (Post Harvest Settings' Log Out Devices) seen since the last
   // password sign-in; the app signs out when the server's mark moves past it.

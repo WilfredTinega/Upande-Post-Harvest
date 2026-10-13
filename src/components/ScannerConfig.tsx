@@ -1,13 +1,19 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Alert } from '@/src/components/Card';
+import { Dropdown } from '@/src/components/Dropdown';
+import { SkeletonBox } from '@/src/components/Skeleton';
+import { cachedList, fetchList, harvestSetupKey } from '@/src/services/list-cache';
+import { scanApi, type HarvestSetup } from '@/src/services/scan-api';
+import { userMessage } from '@/src/services/user-message';
 import { useScanStore } from '@/src/stores/scanStore';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 /**
- * This scanner's station (farm), saved on the device as soon as it changes. The
- * processes come from the user's row in Post Harvest Settings in ERPNext.
+ * This scanner's station (farm) and the greenhouse/block Harvesting scans into, saved
+ * on the device as soon as they change. The processes come from the user's row in
+ * Post Harvest Settings in ERPNext.
  */
 export function ScannerConfig() {
   const farms = useScanStore((s) => s.farms);
@@ -51,6 +57,58 @@ export function ScannerConfig() {
           <Alert tone="warn">{farmsNotice}</Alert>
         </View>
       ) : null}
+      {farm ? <GreenhouseConfig farm={farm} /> : null}
+    </View>
+  );
+}
+
+function GreenhouseConfig({ farm }: { farm: string }) {
+  const greenhouse = useScanStore((s) => s.greenhouse);
+  const setGreenhouse = useScanStore((s) => s.setGreenhouse);
+  const byStemLength = useScanStore((s) => s.harvestByStemLength);
+  const key = harvestSetupKey(farm, byStemLength);
+  // The answer for this farm's key; until it comes, what the list cache holds.
+  const [loaded, setLoaded] = useState<{ key: string; setup?: HarvestSetup; error?: string } | null>(null);
+  const setup = loaded?.key === key ? loaded.setup : cachedList<HarvestSetup>(key);
+  const error = loaded?.key === key ? loaded.error : undefined;
+
+  useEffect(() => {
+    let live = true;
+    fetchList(key, () => scanApi.harvestSetup(farm, byStemLength))
+      .then((r) => {
+        if (!r.success) throw new Error(r.error || 'Could not load the greenhouses');
+        if (live) setLoaded({ key, setup: r });
+      })
+      .catch((err) => {
+        if (live) setLoaded({ key, setup: cachedList<HarvestSetup>(key), error: userMessage(err, 'Could not load the greenhouses') });
+      });
+    return () => {
+      live = false;
+    };
+  }, [farm, byStemLength, key]);
+
+  const options = (setup?.greenhouses ?? []).map((g) => ({
+    label: g.name,
+    value: g.name,
+    sublabel: g.recent ? 'Recent' : undefined,
+  }));
+
+  return (
+    <View style={s.section}>
+      <Text style={s.heading}>Greenhouse / Block</Text>
+      {!setup && !error ? (
+        <SkeletonBox height={46} radius={borderRadius.sm} />
+      ) : (
+        <Dropdown
+          placeholder="Choose the greenhouse / block"
+          value={greenhouse}
+          options={options}
+          onChange={setGreenhouse}
+          searchable
+          emptyText={error ?? `No greenhouses for ${farm}. Set the Greenhouses group in its Warehouse Mapping.`}
+        />
+      )}
+      {!greenhouse ? <Text style={s.hint}>Choose the greenhouse / block.</Text> : null}
     </View>
   );
 }
@@ -75,4 +133,5 @@ const s = StyleSheet.create({
   },
   farmText: { fontFamily: fontFamily.medium, fontSize: fontSize.md, color: colors.text },
   notice: { marginTop: spacing.sm },
+  section: { marginTop: spacing.lg },
 });

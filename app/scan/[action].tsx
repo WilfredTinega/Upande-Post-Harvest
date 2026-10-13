@@ -17,6 +17,8 @@ import { BlockerModal, type BlockerTone } from '@/src/components/BlockerModal';
 import { useToast } from '@/src/components/Toast';
 import { GradedRejectsPanel } from '@/src/components/GradedRejectsPanel';
 import { FieldRejectsList } from '@/src/components/FieldRejectsList';
+import { WalkInSaleList } from '@/src/components/WalkInSaleList';
+import { WalkInOutboxCard } from '@/src/components/WalkInOutboxCard';
 import { NewLoadingPlanForm } from '@/src/components/NewLoadingPlanForm';
 import { DeliveryPanel } from '@/src/components/DeliveryPanel';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
@@ -24,6 +26,7 @@ import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import {
+  overBucketLimit,
   dismissAfter,
   dispatchPlan,
   HUB_FARM,
@@ -42,7 +45,7 @@ import {
   prefetchList,
   varietiesKey,
 } from '@/src/services/list-cache';
-import { scanApi, type Greenhouse, type DeliveryPointSummary, type FloorVariety, type HarvestSetup, type IncomingTruck, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
+import { scanApi, type Greenhouse, type FloorVariety, type HarvestSetup, type IncomingTruck, type LoadingPlan, type OplBox, type OplInfo, type OpenOpl, type Variety } from '@/src/services/scan-api';
 import { useScanStore } from '@/src/stores/scanStore';
 import { useUIStore } from '@/src/stores/uiStore';
 import { audio } from '@/src/audio';
@@ -65,6 +68,8 @@ interface HarvestLookups {
   /** Harvesting by stem length: the lengths to pick from. */
   stemLengths: string[];
   reasons: string[];
+  /** Most stems per bucket for a variety whose item group has no limit of its own. */
+  maxStems: number | null;
 }
 
 const NO_LOOKUPS: HarvestLookups = {
@@ -74,6 +79,7 @@ const NO_LOOKUPS: HarvestLookups = {
   varieties: [],
   stemLengths: [],
   reasons: [],
+  maxStems: null,
 };
 
 export default function ScanScreen() {
@@ -131,6 +137,17 @@ export default function ScanScreen() {
     if (sessionRef.current.farm !== farm) update({ ...emptySession(farm) });
   }, [farm, update]);
 
+  // Harvesting and Field Rejects use the greenhouse chosen in Settings.
+  const greenhouseInSettings = !!action?.greenhouseInSettings;
+  const settingsGreenhouse = useScanStore((s) => s.greenhouse);
+  const varietyFromGreenhouse = !!action?.harvestedVarietiesOnly;
+  useEffect(() => {
+    if (greenhouseInSettings && sessionRef.current.greenhouse !== settingsGreenhouse) {
+      // Field Rejects lists only that greenhouse's harvested varieties, so a new greenhouse clears the pick.
+      update(varietyFromGreenhouse ? { greenhouse: settingsGreenhouse, variety: '' } : { greenhouse: settingsGreenhouse });
+    }
+  }, [greenhouseInSettings, varietyFromGreenhouse, settingsGreenhouse, farm, update]);
+
   const req = useMemo(() => action?.requirements ?? [], [action]);
   // New Loading Plan opens on the form; Load & Dispatch shows it from its button.
   const [showNewPlan, setShowNewPlan] = useState(!!action?.startsPlan);
@@ -146,10 +163,9 @@ export default function ScanScreen() {
   const enqueue = useCallback(
     (code: string, work: () => Promise<Outcome>, parallel = false) => {
       const finish = (outcome: Outcome) => {
-        if (outcome.silent) {
-          // No sound for this outcome.
-        } else if (outcome.tone === 'success' || outcome.tone === 'info') audio.beep();
-        else audio.error();
+        // Only what went through makes a sound (a scan, a line added, a record loaded);
+        // warnings and errors are silent.
+        if ((outcome.tone === 'success' || outcome.tone === 'info') && !outcome.silent) audio.beep();
         if (outcome.counts) setCount((n) => n + 1);
         if (outcome.tone === 'success' || outcome.tone === 'info') {
           const text = outcome.detail ? `${outcome.title}\n${outcome.detail}` : outcome.title;
@@ -171,8 +187,8 @@ export default function ScanScreen() {
           }
         }
         setPending((n) => n - 1);
-        // Harvesting: each bucket needs its own stem count, so go straight to it.
-        if (stemsPerBucket && outcome.counts && !sessionRef.current.stems) stemsRef.current?.focus();
+        // Harvesting: on to the next field the bucket needs.
+        if (stemsPerBucket && outcome.counts) focusNext();
       };
       if (parallel) {
         if (inFlight.current.has(code)) return;
@@ -186,7 +202,7 @@ export default function ScanScreen() {
       setPending((n) => n + 1);
       queue.current = queue.current.then(async () => finish(await work()));
     },
-    [stemsPerBucket, notify, refocus],
+    [stemsPerBucket, notify, refocus, focusNext],
   );
 
   const closeBlocker = () => {
@@ -258,6 +274,7 @@ export default function ScanScreen() {
         varieties: r.varieties ?? [],
         stemLengths: r.stem_lengths ?? [],
         reasons: r.field_reject_reasons ?? [],
+        maxStems: r.max_stems || null,
       }));
     // The setup warmed when the app opened shows at once; it refreshes quietly.
     const key = harvestSetupKey(farm, stemMode);
@@ -319,10 +336,22 @@ export default function ScanScreen() {
     if (req.includes('grader')) prefetchList(employeesKey(farm, 'grader'), () => scanApi.searchEmployees('', farm, 'grader'));
     if (req.includes('packer')) prefetchList(employeesKey(farm, 'packer'), () => scanApi.searchEmployees('', farm, 'packer'));
   }, [req, farm]);
-  const selectedVariety =
+  const selectedVariety: Variety | undefined =
     pickedVariety?.name === session.variety
       ? pickedVariety
       : harvest.varieties.find((v) => v.name === session.variety);
+  // Harvesting and Edit Harvest: one bucket holds at most this many stems of the variety,
+  // checked before the bucket is scanned or the change is saved.
+  const bucketStems = req.includes('stemLength');
+  const maxStems = bucketStems && session.variety ? (selectedVariety?.max_stems || harvest.maxStems) : null;
+  useEffect(() => {
+    const cur = sessionRef.current;
+    if (cur.maxStems === maxStems) return;
+    // A variety holding fewer per bucket brings stems already typed down to its most.
+    const over = !!maxStems && Number(cur.stems) > maxStems;
+    update(over ? { maxStems, stems: String(maxStems) } : { maxStems });
+  }, [maxStems, update]);
+  const tooManyStems = overBucketLimit(session);
 
   // ── Loading Plan / Dispatch ─────────────────────────────────────────────
   const [dispatching, setDispatching] = useState(false);
@@ -365,35 +394,6 @@ export default function ScanScreen() {
   const deliveryOffset = useDeliveryDate((st) => st.offset);
   const deliveryDay = deliveryDate(deliveryOffset);
 
-  // Delivery goes point by point in the loading plan's order: open on the first point with
-  // boxes left, and once a point is fully delivered move on to the next one with boxes left.
-  // Picked once per day, so clearing the point by hand leaves it cleared.
-  const autoPickedDay = useRef<string | null>(null);
-  const needsPoint = req.includes('deliveryPoint');
-  useEffect(() => {
-    if (!needsPoint) return;
-    let live = true;
-    scanApi
-      .deliveryPoints(deliveryDay)
-      .then((r) => {
-        if (!live || !r.success) return;
-        const points = r.points ?? [];
-        const current = sessionRef.current.deliveryPoint;
-        const firstDay = autoPickedDay.current !== deliveryDay;
-        if (current === null && !firstDay) return;
-        const at = current === null ? -1 : points.findIndex((p) => (p.delivery_point ?? '') === current);
-        if (at >= 0 && points[at].pending > 0) return;
-        autoPickedDay.current = deliveryDay;
-        const next = [...points.slice(at + 1), ...points.slice(0, Math.max(at, 0))].find((p) => p.pending > 0);
-        if (next) update({ deliveryPoint: next.delivery_point ?? '' });
-      })
-      .catch(() => {
-        // The point stays as it is; it can still be chosen from the list.
-      });
-    return () => {
-      live = false;
-    };
-  }, [needsPoint, deliveryDay, session.deliveryVersion, update]);
 
   const [fetching, setFetching] = useState(false);
   const onFetch = async () => {
@@ -491,12 +491,23 @@ export default function ScanScreen() {
       rightIcon="menu"
       onPressRight={openDrawer}
     >
+      {/* Full width above the rest: the day whose loaded boxes are listed. */}
+      {action.panel === 'delivery' ? <DeliveryDateFilter /> : null}
       <View style={s.metaRow}>
         {/* Delivery covers every farm's boxes, so no farm over its date. */}
-        {action.needsFarm && !req.includes('deliveryPoint') ? (
-          <Chip icon="location-outline" label={farm || 'No farm'} onPress={() => router.push('/settings')} bold />
+        {action.needsFarm && action.panel !== 'delivery' ? (
+          <Chip icon="location-outline" label={farm || 'No farm'} bold />
         ) : null}
-        {!blocked && formOpen && req.includes('greenhouse') ? (
+        {action.needsFarm && greenhouseInSettings ? (
+          // Farm on the left, its greenhouse on the right.
+          <Chip
+            icon="leaf-outline"
+            label={settingsGreenhouse || 'No greenhouse'}
+            bold
+            end
+          />
+        ) : null}
+        {!blocked && formOpen && req.includes('greenhouse') && !greenhouseInSettings ? (
           <View style={s.greenhouse}>
             {harvest.loading && !harvest.greenhouses.length ? (
               <SkeletonBox height={46} radius={borderRadius.sm} />
@@ -691,20 +702,25 @@ export default function ScanScreen() {
                       ref={stemsRef}
                       label={action?.stemsLabel ?? (action?.submit ? 'Stems rejected' : 'Stems in bucket')}
                       value={session.stems}
-                      onChangeText={(t) => update({ stems: t.replace(/[^0-9]/g, '') })}
+                      onChangeText={(t) => {
+                        const typed = t.replace(/[^0-9]/g, '');
+                        // More than a bucket holds goes back to the most it holds.
+                        update({ stems: maxStems && Number(typed) > maxStems ? String(maxStems) : typed });
+                      }}
                       onSubmitEditing={action?.submit ? undefined : refocus}
                       placeholder={
                         session.varietyBalance !== null && req.includes('floorVariety')
                           ? `max ${session.varietyBalance}`
-                          : action?.submit
-                            ? 'e.g. 20'
-                            : selectedVariety?.max_stems
-                              ? `max ${selectedVariety.max_stems}`
+                          : maxStems
+                            ? `max ${maxStems}`
+                            : action?.submit
+                              ? 'e.g. 20'
                               : 'Stems'
                       }
                       keyboardType="number-pad"
                       returnKeyType="done"
                       maxLength={4}
+                      invalid={tooManyStems}
                     />
                   </View>
                 </View>
@@ -792,41 +808,6 @@ export default function ScanScreen() {
                       removeFromPlan: false,
                     })
                   }
-                />
-              ) : null}
-              {req.includes('deliveryPoint') ? (
-                <DeliveryDateFilter onChange={() => update({ deliveryPoint: null })} />
-              ) : null}
-              {req.includes('deliveryPoint') ? (
-                <SearchPicker<DeliveryPointSummary>
-                  cacheKey={`delivery-points|${deliveryDay}`}
-                  label="Delivery point"
-                  icon="navigate-outline"
-                  value={
-                    session.deliveryPoint === null
-                      ? null
-                      : { title: session.deliveryPoint || 'No delivery point' }
-                  }
-                  placeholder="Choose the delivery point"
-                  load={async (query) => {
-                    const r = await scanApi.deliveryPoints(deliveryDay);
-                    if (!r.success) throw new Error(r.error || 'Could not load the delivery points');
-                    const q = query.trim().toLowerCase();
-                    return (r.points ?? []).filter((p) => !q || (p.delivery_point ?? '').toLowerCase().includes(q));
-                  }}
-                  keyOf={(p) => p.delivery_point ?? ''}
-                  row={(p) => ({
-                    title: p.delivery_point || 'No delivery point',
-                    sub: `${p.customers} customer${p.customers === 1 ? '' : 's'}`,
-                    lead: p.pending ? `${p.pending} to deliver` : undefined,
-                    right: p.delivered ? `${p.delivered} done` : undefined,
-                    stripe: p.pending ? undefined : 'good',
-                  })}
-                  onPick={(p) => update({ deliveryPoint: p.delivery_point ?? '' })}
-                  onClear={() => setAndRefocus({ deliveryPoint: null })}
-                  onClose={focusNext}
-                  searchPlaceholder="Search delivery point"
-                  emptyText="No boxes on their way"
                 />
               ) : null}
               {req.includes('truckPick') && showNewPlan ? (
@@ -948,6 +929,7 @@ export default function ScanScreen() {
               onScan={onScan}
               autoFocus
               cameraOnly={action.cameraOnly}
+              editable={!tooManyStems}
             />
             {pending > 0 ? (
               <View style={s.readyRow}>
@@ -965,13 +947,15 @@ export default function ScanScreen() {
           ) : null}
           {action.panel === 'rejects' && farm ? <GradedRejectsPanel farm={farm} version={session.rejectsVersion} /> : null}
           {action.panel === 'field-rejects' && farm ? <FieldRejectsList farm={farm} /> : null}
-          {action.panel === 'delivery' && session.deliveryPoint !== null ? (
-            <DeliveryPanel point={session.deliveryPoint} date={deliveryDay} version={session.deliveryVersion} />
-          ) : null}
+          {/* A submitted sale starts the page afresh: empty list, count back to 0. */}
+          {action.panel === 'walk-in-sale' ? <WalkInSaleList onSold={() => setCount(0)} /> : null}
+          {action.panel === 'walk-in-sale' ? <WalkInOutboxCard /> : null}
+          {action.panel === 'delivery' ? <DeliveryPanel date={deliveryDay} version={session.deliveryVersion} /> : null}
           {action.panel &&
           action.panel !== 'rejects' &&
           action.panel !== 'delivery' &&
           action.panel !== 'field-rejects' &&
+          action.panel !== 'walk-in-sale' &&
           session.plan ? (
             <LoadingPlanPanel
               plan={session.plan}
@@ -1234,14 +1218,17 @@ function Chip({
   label,
   onPress,
   bold,
+  end,
 }: {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   label: string;
   onPress?: () => void;
   bold?: boolean;
+  /** Pushed to the right end of the row. */
+  end?: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={s.chip} hitSlop={6}>
+    <Pressable onPress={onPress} disabled={!onPress} style={[s.chip, end && s.chipEnd]} hitSlop={6}>
       <Ionicons name={icon} size={14} color={colors.textSecondary} />
       <Text style={[s.chipText, bold && s.chipTextBold]}>{label}</Text>
     </Pressable>
@@ -1337,6 +1324,7 @@ const s = StyleSheet.create({
     color: colors.text,
   },
   countRow: { flexDirection: 'row', marginBottom: spacing.md },
+  chipEnd: { marginLeft: 'auto' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

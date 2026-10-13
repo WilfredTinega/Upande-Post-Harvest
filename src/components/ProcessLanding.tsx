@@ -1,11 +1,14 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { dialog } from '@/src/components/AppDialog';
 import { ProcessOverview } from '@/src/components/ProcessOverview';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
 import { PackhouseSummary } from '@/src/components/PackhouseSummary';
 import { ProductionSummary } from '@/src/components/ProductionSummary';
 import { ACTIONS, atStation, HUB_FARM, type ActionDef } from '@/src/scan/actions';
+import { ArrivalsPanel } from '@/src/components/ArrivalsPanel';
+import { ShopSalesPanel } from '@/src/components/ShopSalesPanel';
 import { PROCESSES, type ProcessKey } from '@/src/scan/processes';
 import type { Overview } from '@/src/services/scan-api';
 import { colors, fontFamily, fontSize, shadow, spacing } from '@/src/theme';
@@ -26,17 +29,14 @@ interface Props {
 export function ProcessLanding({ process, farm, overview, loading, error, onRetry, showLabel, onOpen }: Props) {
   const label = PROCESSES.find((p) => p.key === process)?.label ?? process;
   const actions = ACTIONS.filter((a) => a.group === process && atStation(a, farm));
-  // One or two shortcuts take the full width.
-  const wide = actions.length <= 2;
 
   return (
     <View style={s.section}>
       {showLabel ? <Text style={s.label}>{label.toUpperCase()}</Text> : null}
       {process === 'delivery' ? <DeliveryDateFilter /> : null}
-      {/* Dispatch figures are Loading Plan figures: only Burguret loads by plan. */}
-      {farm && !(process === 'dispatch' && farm !== HUB_FARM) ? (
-        <ProcessOverview process={process} farm={farm} overview={overview} loading={loading} error={error} onRetry={onRetry} />
-      ) : null}
+      {farm ? <ProcessOverview process={process} farm={farm} overview={overview} loading={loading} error={error} onRetry={onRetry} /> : null}
+      {/* Below the figures: Burguret confirms the farms' trucks arrived. */}
+      {process === 'dispatch' && farm === HUB_FARM ? <ArrivalsPanel /> : null}
       <View style={s.grid}>
         {actions.map((a) => {
           const blocked = a.needsFarm && !farm;
@@ -45,7 +45,7 @@ export function ProcessLanding({ process, farm, overview, loading, error, onRetr
             <Pressable
               key={a.key}
               onPress={() => onOpen(a)}
-              style={({ pressed }) => [s.tile, wide && s.wide, blocked && s.blocked, pressed && s.pressed]}
+              style={({ pressed }) => [s.tile, blocked && s.blocked, pressed && s.pressed]}
               accessibilityRole="button"
               accessibilityLabel={a.label}
               accessibilityHint={a.description}
@@ -59,8 +59,18 @@ export function ProcessLanding({ process, farm, overview, loading, error, onRetr
                   {count?.progress !== undefined ? ` (${Math.round(count.progress * 100)}%)` : ''}
                 </Text>
               </View>
+              {/* In the tile's top-right corner, clear of the label. */}
+              <Pressable
+                onPress={() => dialog(a.label, a.notes ?? a.description, undefined, { cancelable: true })}
+                hitSlop={8}
+                style={s.info}
+                accessibilityRole="button"
+                accessibilityLabel={`About ${a.label}`}
+              >
+                <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
+              </Pressable>
               {count ? (
-                <Text style={s.count} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                <Text style={s.count} numberOfLines={2}>
                   <Text style={s.countNum}>{count.value}</Text> {count.unit}
                   {count.stems ? (
                     <>
@@ -90,6 +100,8 @@ export function ProcessLanding({ process, farm, overview, loading, error, onRetr
           );
         })}
       </View>
+      {/* Below the shortcuts: today's shop sales. */}
+      {process === 'shop' && farm ? <ShopSalesPanel version={overview} /> : null}
       {process === 'production' && farm ? <ProductionSummary farm={farm} /> : null}
       {process === 'packhouse' && farm ? <PackhouseSummary farm={farm} /> : null}
     </View>
@@ -142,7 +154,8 @@ const s = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   tile: {
     width: '48.5%',
-    // Compact: icon and label side by side.
+    // Same fonts on every shortcut: text wraps instead of shrinking, and the tiles in a row
+    // stretch to the tallest one.
     minHeight: 56,
     justifyContent: 'center',
     gap: spacing.xs,
@@ -154,7 +167,6 @@ const s = StyleSheet.create({
     paddingVertical: spacing.sm,
     ...shadow.sm,
   },
-  wide: { width: '100%' },
   blocked: { opacity: 0.5 },
   pressed: { opacity: 0.7 },
   icon: {
@@ -166,10 +178,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   tileLabel: { flex: 1, fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
-  tileHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  tileHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingRight: spacing.md },
+  info: { position: 'absolute', top: 4, right: 4, padding: 2 },
   // Today's figure, on its own line under the label.
   count: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted },
   track: { height: 4, borderRadius: 2, backgroundColor: colors.surfaceAlt, overflow: 'hidden' },
   fill: { height: 4, borderRadius: 2 },
-  countNum: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.text },
+  countNum: { fontFamily: fontFamily.bold, fontSize: fontSize.xs, color: colors.text },
 });
