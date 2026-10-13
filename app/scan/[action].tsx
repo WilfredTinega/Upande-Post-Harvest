@@ -24,6 +24,7 @@ import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import {
+  dismissAfter,
   dispatchPlan,
   HUB_FARM,
   emptySession,
@@ -159,12 +160,13 @@ export default function ScanScreen() {
             detail: outcome.detail,
           };
           setBlocker(shown);
-          if (outcome.dismissAfterMs) {
+          const dismissMs = dismissAfter(outcome);
+          if (dismissMs) {
             setTimeout(() => {
               // Only if it is still the one up (a later scan may have replaced it).
               setBlocker((cur) => (cur === shown ? null : cur));
               refocus();
-            }, outcome.dismissAfterMs);
+            }, dismissMs);
           }
         }
         setPending((n) => n - 1);
