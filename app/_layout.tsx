@@ -13,7 +13,7 @@ import { OtaToast } from '@/src/components/OtaToast';
 import { UpdateController } from '@/src/components/UpdateController';
 import { useAuthStore } from '@/src/stores/authStore';
 import { useNetworkStore } from '@/src/stores/networkStore';
-import { useScanStore } from '@/src/stores/scanStore';
+import { setupComplete, useScanStore } from '@/src/stores/scanStore';
 
 // Hold the native splash until fonts + auth hydrated.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -32,6 +32,8 @@ export default function RootLayout() {
   const hydrate = useAuthStore((s) => s.hydrate);
   const initNetwork = useNetworkStore((s) => s.init);
   const hydrateScanner = useScanStore((s) => s.hydrate);
+  const scannerHydrated = useScanStore((s) => s.hydrated);
+  const setUp = useScanStore(setupComplete);
 
   const segments = useSegments();
   const router = useRouter();
@@ -49,9 +51,9 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, hydrated]);
 
-  // Auth gate — route between login / biometric-lock / app based on state.
+  // Auth gate — route between login / biometric-lock / setup / app based on state.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !scannerHydrated) return;
     const first = segments[0] as string | undefined;
     const inAuthFlow = first === 'login' || first === 'biometric-lock';
 
@@ -63,8 +65,13 @@ export default function RootLayout() {
       if (first !== 'biometric-lock') router.replace('/biometric-lock');
       return;
     }
+    // The farm and the greenhouse/block before the home screen.
+    if (!setUp) {
+      if (inAuthFlow || first === undefined) router.replace('/setup');
+      return;
+    }
     if (inAuthFlow) router.replace('/');
-  }, [hydrated, hasSession, biometricLocked, segments, router]);
+  }, [hydrated, scannerHydrated, hasSession, biometricLocked, setUp, segments, router]);
 
   if (!fontsLoaded || !hydrated) return null;
 
@@ -77,6 +84,7 @@ export default function RootLayout() {
           <Stack.Screen name="process/[key]" />
           <Stack.Screen name="scan/[action]" />
           <Stack.Screen name="settings" />
+          <Stack.Screen name="setup" options={{ gestureEnabled: false }} />
           <Stack.Screen name="devices" />
           <Stack.Screen name="login" />
           <Stack.Screen name="biometric-lock" options={{ animation: 'fade' }} />

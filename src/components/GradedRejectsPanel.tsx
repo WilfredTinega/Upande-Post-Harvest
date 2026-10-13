@@ -17,7 +17,7 @@ interface Props {
 
 /**
  * Today's graded rejects at the farm: what came into the packhouse, what was graded
- * and rejected, the reject lines (drafted until submitted), and the one submit.
+ * and rejected, the reject lines not submitted yet, and the one submit.
  */
 export function GradedRejectsPanel({ farm, version }: Props) {
   const { notify } = useToast();
@@ -84,8 +84,9 @@ export function GradedRejectsPanel({ farm, version }: Props) {
         <Total label="Rejected" value={day.rejected_stems} tone="bad" />
       </View>
 
-      {day.lines.length ? (
-        day.lines.map((l) => (
+      {/* Submitted lines leave the list; their stems stay in Rejected above. */}
+      {drafted.length ? (
+        drafted.map((l) => (
           <View key={l.row} style={s.line}>
             <Text style={s.lineName} numberOfLines={1}>
               {l.item_name}
@@ -93,16 +94,12 @@ export function GradedRejectsPanel({ farm, version }: Props) {
               {l.reason ? <Text style={s.reason}>{`  · ${l.reason}`}</Text> : null}
             </Text>
             <Text style={s.lineStems}>{l.stems.toLocaleString()}</Text>
-            {l.submitted ? (
-              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-            ) : (
-              <Pressable onPress={() => remove(l.row)} disabled={busy} hitSlop={10} accessibilityLabel={`Remove ${l.item_name}`}>
-                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-              </Pressable>
-            )}
+            <Pressable onPress={() => remove(l.row)} disabled={busy} hitSlop={10} accessibilityLabel={`Remove ${l.item_name}`}>
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
           </View>
         ))
-      ) : (
+      ) : day.lines.length ? null : (
         <Text style={s.empty}>No rejects recorded today.</Text>
       )}
 

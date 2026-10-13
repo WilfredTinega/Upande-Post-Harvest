@@ -1,7 +1,9 @@
 import type { Ionicons } from '@expo/vector-icons';
+import * as Crypto from 'expo-crypto';
 import type { ComponentProps } from 'react';
 import { useFieldRejectsStore } from '@/src/stores/fieldRejectsStore';
-import { scanApi, type Employee, type FieldRejectLine, type HarvestedBucket, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
+import { bunchStems, useWalkInSaleStore, walkInBunch, walkInPrice } from '@/src/stores/walkInSaleStore';
+import { scanApi, type Employee, type FieldRejectLine, type WalkInSaleLine, type HarvestedBucket, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
 import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseGraderQr, parseTruck } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
 import { humanText, isRepeatNotice, REPEAT_NOTICE_MS, userMessage } from '@/src/services/user-message';
@@ -57,7 +59,12 @@ export interface ScanSession {
   deliveryVersion: number;
   /** Edit Harvest: the scanned bucket's harvest entry, as loaded. */
   harvestEdit: HarvestedBucket | null;
+  /** Most stems one bucket of the picked variety holds (Harvesting, Edit Harvest); null until known. */
+  maxStems: number | null;
 }
+
+/** The stems typed are more than one bucket of the variety holds. */
+export const overBucketLimit = (s: ScanSession): boolean => !!s.maxStems && stemCount(s) > s.maxStems;
 
 export const emptySession = (farm: string): ScanSession => ({
   farm,
@@ -80,6 +87,7 @@ export const emptySession = (farm: string): ScanSession => ({
   deliveryPoint: null,
   deliveryVersion: 0,
   harvestEdit: null,
+  maxStems: null,
 });
 
 /** Session inputs shown above the scan field. */
@@ -117,6 +125,7 @@ export type ActionKey =
   | 'graded-discard'
   | 'local-sale'
   | 'walk-in-shop'
+  | 'walk-in-sale'
   | 'ungrade'
   | 'stock-take'
   | 'vase'
@@ -147,6 +156,8 @@ export interface ActionDef {
   key: ActionKey;
   label: string;
   description: string;
+  /** Shown from the shortcut's (i): what the scan does, what it needs and what it saves. */
+  notes?: string;
   group: ActionGroup;
   icon: IconName;
   /** False when the server resolves the farm itself. */
@@ -163,6 +174,8 @@ export interface ActionDef {
   parallel?: (code: string, s: ScanSession) => boolean;
   /** Scan first: the fields and the submit button show once the scan has loaded a record. */
   formAfterScan?: boolean;
+  /** The greenhouse is the one chosen in Settings, not picked on the screen. */
+  greenhouseInSettings?: boolean;
   /** Always pick the stem length, whatever the Harvest by stem length setting. */
   alwaysStemLength?: boolean;
   /** Label of the stems field. */
@@ -170,7 +183,7 @@ export interface ActionDef {
   /** Scan with the phone camera only (no field for a hardware scanner or typing): the button's label. */
   cameraOnly?: string;
   /** Loading Plan panel under the scan field: build the plan, load the truck, or dispatch it. */
-  panel?: 'plan' | 'load' | 'dispatch' | 'rejects' | 'delivery' | 'field-rejects';
+  panel?: 'plan' | 'load' | 'dispatch' | 'rejects' | 'delivery' | 'field-rejects' | 'walk-in-sale';
   /** What the operator should scan next, given the session so far. */
   prompt: (s: ScanSession) => string;
   /** Form-style actions (nothing to scan): a button that records the setup instead of a scan field. */
@@ -242,11 +255,12 @@ export function harvestByStemLength(): boolean {
 
 /** What Harvesting still needs before a bucket can be scanned, or null. */
 export function harvestMissing(s: ScanSession): string | null {
-  if (!s.greenhouse) return 'Select the greenhouse';
+  if (!s.greenhouse) return 'Choose the greenhouse in Settings';
   if (!s.variety) return 'Select the variety';
   if (harvestByStemLength() && !s.stemLength) return 'Select the stem length';
   if (!s.harvester) return 'Select the harvester';
   if (!stemCount(s)) return 'Enter the number of stems';
+  if (overBucketLimit(s)) return `At most ${s.maxStems} stems per bucket`;
   return null;
 }
 
@@ -280,19 +294,24 @@ function receivingAction(
       if (!bucketId) return warn('Please scan a valid Bucket QR Code');
       try {
         const r = await scanApi.receiving(bucketId, s.farm, action);
-        if (r.status === 'available') return info(`${bucketId} is available`, 'No harvest entry exists');
+        // Not harvested: nothing went through, so no sound.
+        if (r.status === 'available') return { ...info(`${bucketId} is available`, 'No harvest entry exists'), silent: true };
         if (r.status !== 'success') return fail('Unexpected response from server');
         return ok(`${bucketId} ${RECEIVING_LABEL[action]}`, `${r.variety} (${r.qty} stems)`);
       } catch (err) {
-        return receivingError(bucketId, errorOf(err));
+        return receivingError(bucketId, errorOf(err), action);
       }
     },
   };
 }
 
-function receivingError(bucketId: string, msg: string): Outcome {
+function receivingError(bucketId: string, msg: string, action: string): Outcome {
   const lower = msg.toLowerCase();
-  if (msg.includes('__available__')) return info(`${bucketId} is available`, 'Harvest it before receiving');
+  // Its last entry is this same step: the bucket was scanned here a moment ago.
+  if (lower.trim().replace(/[.!]+$/, '').endsWith(`last entry is ${action.toLowerCase()}`)) {
+    return warn(action === 'Receiving Out' ? `${bucketId} already scanned out!` : `${bucketId} already ${RECEIVING_LABEL[action]}`);
+  }
+  if (msg.includes('__available__')) return { ...info(`${bucketId} is available`, 'Harvest it before receiving'), silent: true };
   if (msg.includes('__not_found__')) return fail(`${bucketId} has no Harvest Entry`);
   if (lower.includes('already scanned out')) return warn(`${bucketId} already scanned out!`);
   if (lower.includes('already received') || lower.includes('already scanned')) return warn(`${bucketId} already received!`);
@@ -394,6 +413,7 @@ export const ACTIONS: ActionDef[] = [
     icon: 'cut-outline',
     needsFarm: true,
     requirements: ['greenhouse', 'variety', 'stemLength', 'harvester', 'bed', 'stems'],
+    greenhouseInSettings: true,
     cameraOnly: 'Scan the bucket QR',
     prompt: (s) => {
       const missing = harvestMissing(s);
@@ -417,8 +437,8 @@ export const ACTIONS: ActionDef[] = [
           ...(harvestByStemLength() ? { stem_length: s.stemLength } : {}),
         });
         if (r.success) {
-          // The next bucket needs its own count.
-          update({ stems: '' });
+          // Each bucket is filled in from scratch; only the greenhouse (Settings) stays.
+          update({ variety: '', stemLength: '', harvester: null, bed: '', stems: '' });
           return ok(
             `${r.bucket_id} harvested`,
             [
@@ -450,11 +470,12 @@ export const ACTIONS: ActionDef[] = [
     icon: 'alert-circle-outline',
     needsFarm: true,
     requirements: ['greenhouse', 'variety', 'fieldRejectReason', 'bed', 'stems'],
+    greenhouseInSettings: true,
     harvestedVarietiesOnly: true,
     panel: 'field-rejects',
     prompt: (s) =>
       !s.greenhouse
-        ? 'Select the greenhouse'
+        ? 'Choose the greenhouse in Settings'
         : !s.variety
           ? 'Select the variety'
           : !s.rejectionReason
@@ -470,7 +491,7 @@ export const ACTIONS: ActionDef[] = [
       icon: 'add-circle-outline',
       ready: (s) => !!(s.greenhouse && s.variety && s.rejectionReason && s.bed.trim() && stemCount(s)),
       run: async (s, update) => {
-        if (!s.greenhouse) return warn('Select the greenhouse first');
+        if (!s.greenhouse) return warn('Choose the greenhouse in Settings first');
         if (!s.variety) return warn('Select the variety first');
         if (!s.rejectionReason) return warn('Choose the rejection reason first');
         if (!s.bed.trim()) return warn('Enter the bed / bay first');
@@ -481,8 +502,9 @@ export const ACTIONS: ActionDef[] = [
           reason: s.rejectionReason,
           bed: s.bed.trim(),
           stems: stemCount(s),
+          uid: Crypto.randomUUID(),
         };
-        // Greenhouse and variety stay set; bed, reason and stems are entered afresh.
+        // Greenhouse (Settings) and variety stay set; bed, reason and stems are entered afresh.
         useFieldRejectsStore.getState().add(s.farm, line);
         update({ stems: '', bed: '', rejectionReason: '' });
         return info(`${line.stems} stems added`, `${line.item_code} · bed ${line.bed}\n${line.reason}`);
@@ -529,7 +551,7 @@ export const ACTIONS: ActionDef[] = [
     submit: {
       label: 'Save changes',
       icon: 'save-outline',
-      ready: (s) => !!(s.harvestEdit && s.greenhouse && s.variety && stemCount(s)),
+      ready: (s) => !!(s.harvestEdit && s.greenhouse && s.variety && stemCount(s)) && !overBucketLimit(s),
       confirm: (s) => {
         const e = s.harvestEdit;
         if (!e) return null;
@@ -549,6 +571,7 @@ export const ACTIONS: ActionDef[] = [
           if (!s.greenhouse) return warn('Select the greenhouse first');
           if (!s.variety) return warn('Select the variety first');
           if (!stemCount(s)) return warn('Enter the number of stems');
+          if (overBucketLimit(s)) return warn(`At most ${s.maxStems} stems per bucket`);
           const r = await scanApi.editHarvestedBucket({
             farm: s.farm,
             bucket_id: e.bucket_id,
@@ -570,7 +593,7 @@ export const ACTIONS: ActionDef[] = [
             ]);
           }
           update({ harvestEdit: null, greenhouse: '', variety: '', stemLength: '', bed: '', stems: '' });
-          if (r.unchanged) return info('Nothing changed', e.bucket_id);
+          if (r.unchanged) return { ...info('Nothing changed', e.bucket_id), silent: true };
           return ok(
             `${e.bucket_id} updated`,
             `${r.variety_name ?? r.variety}${r.stem_length ? ` ${r.stem_length}` : ''} · ${r.qty} stems\n${r.greenhouse}${r.bay ? ` · bed ${r.bay}` : ''}\n${r.stock_entry}`,
@@ -767,6 +790,7 @@ export const ACTIONS: ActionDef[] = [
     key: 'local-sale',
     label: 'Move to Shop',
     description: 'Move day 4+ bunches to the shop',
+    notes: 'Moves a graded bunch from the farm’s Available for Sale store to Shop Available for Sale.\n\n• The bunch must be graded, day 4 or older, and not packed for an order.\n• Saved at the scan. No price, no invoice.\n• Next: Move to Walk In Shop, Walk In Sale, Vase or Shop Discard.',
     group: PACKHOUSE,
     icon: 'storefront-outline',
     needsFarm: true,
@@ -836,16 +860,16 @@ export const ACTIONS: ActionDef[] = [
   {
     key: 'delivery',
     label: 'Delivery',
-    description: 'Deliver the boxes of a delivery point, customer by customer',
+    description: 'Deliver the boxes loaded for Nairobi, point by point',
     group: DELIVERY,
     icon: 'checkmark-done-outline',
     needsFarm: true,
-    requirements: ['deliveryPoint'],
+    // Open ended: the boxes loaded from Burguret to Nairobi, every delivery point.
+    requirements: [],
     panel: 'delivery',
-    prompt: (s) => (s.deliveryPoint === null ? 'Choose the delivery point' : 'Scan each box as it is delivered'),
+    prompt: () => 'Scan each box as it is delivered',
     handle: (code, s, update) =>
       run(async () => {
-        if (s.deliveryPoint === null) return warn('Choose the delivery point first');
         if (!isBoxLabel(code)) return warn('Invalid Box Label!');
         const r = await scanApi.delivery(code.trim(), s.farm);
         if (r.success) {
@@ -901,14 +925,71 @@ export const ACTIONS: ActionDef[] = [
       }),
   },
 
-  // Shop: shop → walk-in shop / vase; shop discard
+  // Shop: walk-in sale; shop → walk-in shop / vase; shop discard. Any farm's bunch: its own
+  // farm's stores are used, so the shop has no farm to pick.
+  {
+    key: 'walk-in-sale',
+    label: 'Walk In Sale',
+    description: 'Sell bunches to a walk-in customer: scan them, then submit the paid invoice',
+    notes: 'Sells bunches to a walk-in customer for cash.\n\n• Scan each bunch: it is checked and priced from TAMBUZI SHOP’s price list, and added to the list. Nothing is saved yet; ✕ removes one.\n• Any farm’s bunch in either shop store sells, whatever its age.\n• Submit invoice → Yes makes the Sales Order and the paid invoice, takes the stock out and marks the bunches sold.',
+    group: SHOP,
+    icon: 'cash-outline',
+    needsFarm: false,
+    requirements: [],
+    panel: 'walk-in-sale',
+    prompt: () => 'Scan each bunch the customer buys',
+    handle: (code) =>
+      run(async () => {
+        const p = bunchPayload(code);
+        if (!p) return warn('Invalid Bunch QR Code');
+        const sale = useWalkInSaleStore.getState();
+        if (sale.lines.some((l) => l.bunch_id === p.bunch.bunch_id)) return warn(`${p.bunch.bunch_id} already on this sale`);
+        // Checked against what the screen loaded (the shop's bunches and prices): no call to the
+        // server. Only a bunch not found there is asked about. Submitting checks every bunch again.
+        let where = walkInBunch(p.bunch.bunch_id);
+        if (where === null) {
+          const r = await scanApi.walkInSaleCheck(p.json);
+          if (!r.success || !r.farm || !r.warehouse) {
+            return rejected(r, [
+              ['already sold', 'warning'],
+              ['already discarded', 'warning'],
+              ['already vased', 'warning'],
+              ['not in the shop', 'warning'],
+              ['no price', 'error'],
+              ['insufficient stock', 'error'],
+            ]);
+          }
+          where = [r.farm, r.warehouse.replace(`${r.farm} `, '').replace(' - TL', '')];
+        }
+        const stems = bunchStems(p.bunch.bunch_size ?? '');
+        const rate = walkInPrice(p.bunch.variety, p.bunch.stem_length ?? '');
+        const line: WalkInSaleLine = {
+          bunch_id: p.bunch.bunch_id,
+          farm: where?.[0] ?? p.bunch.farm ?? '',
+          variety: p.bunch.variety,
+          item_name: p.bunch.variety,
+          stem_length: p.bunch.stem_length ?? '',
+          bunch_size: p.bunch.bunch_size ?? '',
+          stems,
+          rate,
+          amount: rate * stems,
+          warehouse: where ? `${where[0]} ${where[1]} - TL` : '',
+        };
+        sale.add(line);
+        return ok(
+          `${line.item_name}${line.stem_length ? ` ${line.stem_length}` : ''} added`,
+          `${line.stems} stems · ${line.amount ? `KES ${line.amount.toLocaleString()}` : 'priced on submit'}${line.farm ? ` · ${line.farm}` : ''}${where ? ` · ${where[1]}` : ''}`,
+        );
+      }),
+  },
   {
     key: 'walk-in-shop',
-    label: 'Walk In Shop',
-    description: 'Move shop bunches into the walk-in shop',
+    label: 'Move to Walk In Shop',
+    description: 'Move bunches from the shop to the walk-in customer sales',
+    notes: 'Moves a bunch from the shop (Shop Available for Sale) to the walk-in customer sales (Walk In Shop Available).\n\n• The bunch must have been moved to the shop and be day 4 or older.\n• Saved at the scan. No price, no invoice.\n• Next: Walk In Sale sells it.',
     group: SHOP,
     icon: 'enter-outline',
-    needsFarm: true,
+    needsFarm: false,
     requirements: [],
     prompt: () => 'Scan a bunch QR',
     handle: (code, s) =>
@@ -916,7 +997,7 @@ export const ACTIONS: ActionDef[] = [
         const p = bunchPayload(code);
         if (!p) return warn('Invalid Bunch QR Code');
         const r = await scanApi.walkInShopTransfer(p.json, s.farm);
-        if (r.success) return ok(r.already_in_walk_in_shop ? `${p.bunch.variety} already in the walk-in shop` : `${p.bunch.variety} → walk-in shop`, r.message || r.bunch_id);
+        if (r.success) return ok(r.already_in_walk_in_shop ? `${p.bunch.variety} already in walk-in customer sales` : `${p.bunch.variety} → walk-in customer sales`, r.message || r.bunch_id);
         return rejected(r, [
           ['already moved', 'warning'],
           ['moved to the shop first', 'warning', 'Move it to the shop first'],
@@ -929,6 +1010,7 @@ export const ACTIONS: ActionDef[] = [
     key: 'vase',
     label: 'Vase',
     description: 'Vase a bunch from the walk-in shop',
+    notes: 'Vases a bunch from the walk-in customer sales (Walk In Shop Available).\n\n• Saved at the scan.',
     group: SHOP,
     icon: 'flower-outline',
     needsFarm: false,
@@ -947,10 +1029,11 @@ export const ACTIONS: ActionDef[] = [
     key: 'graded-discard',
     label: 'Shop Discard',
     description: 'Discard a bunch from the shop store',
+    notes: 'Discards a bunch from the shop store.\n\n• Saved at the scan; the stems leave the shop.',
     group: SHOP,
     icon: 'close-circle-outline',
-    needsFarm: true,
-    requirements: ['graderOptional'],
+    needsFarm: false,
+    requirements: [],
     prompt: () => 'Scan a bunch QR',
     handle: (code, s) =>
       run(async () => {
@@ -980,7 +1063,7 @@ export const ACTIONS: ActionDef[] = [
       run(async () => {
         const r = await scanApi.gradingCheck(code);
         if (!r.success) return fail(r.error || 'Invalid QR Code');
-        if (r.status === 'BUCKET') return info('Bucket detected');
+        if (r.status === 'BUCKET') return { ...info('Bucket detected'), silent: true };
         return r.status === 'GRADED' ? ok('GRADED', r.bunch_id) : warn('NOT GRADED', r.bunch_id);
       }),
   },

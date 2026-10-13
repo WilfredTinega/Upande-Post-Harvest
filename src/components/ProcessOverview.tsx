@@ -92,11 +92,11 @@ function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
       hero: {
         chip: 'STEMS IN SHOP',
         value: inStock,
-        unit: `stems · ${num(p.walk_in_stems)} in walk-in shop · ${num(p.moved_to_shop_stems)} moved in today`,
+        unit: `stems · ${num(p.walk_in_stems)} walk-in`,
       },
       tiles: [
-        { chip: 'SOLD TODAY', value: p.sold_stems, unit: `stems · ${num(p.sales_invoices)} invoices` },
-        { chip: 'SALES TODAY', value: p.sales_amount, unit: `${p.currency || ''} · ${num(p.discarded_stems)} stems discarded`.trim() },
+        { chip: 'SOLD TODAY', value: p.sold_stems, unit: `stems · ${num(p.sales_invoices)} sales` },
+        { chip: 'SALES TODAY', value: p.sales_amount, unit: p.currency || '' },
       ],
     };
   }
@@ -118,6 +118,23 @@ function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
   }
   const d = o?.dispatch;
   if (!d) return null;
+  // Farms other than Burguret: their boxes for tomorrow's delivery, loaded onto the Dispatch Form.
+  if (d.farm_boxes_packed !== undefined) {
+    const packed = d.farm_boxes_packed;
+    const loaded = d.farm_boxes_loaded ?? 0;
+    return {
+      icon: 'bus',
+      hero: {
+        chip: 'PACKED FOR TOMORROW',
+        value: packed,
+        unit: `boxes · ${num(Math.max(packed - loaded, 0))} not loaded`,
+      },
+      tiles: [
+        { chip: 'LOADED', value: loaded, unit: `of ${num(packed)} boxes · ${num(d.farm_trucks_loading)} trucks loading` },
+        { chip: 'DISPATCHED', value: d.farm_trucks_dispatched, unit: 'trucks to Burguret today' },
+      ],
+    };
+  }
   return {
     icon: 'bus',
     hero: {

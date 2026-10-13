@@ -49,14 +49,14 @@ export function harvestSetupKey(farm: string, byStemLength: boolean): string {
 
 /**
  * Load what the harvesting screens open on, in the background: the farm's
- * greenhouses, its recent harvesters, and the varieties of its most recently
- * harvested greenhouse.
+ * greenhouses, its recent harvesters, and the varieties of the chosen greenhouse
+ * (or else its most recently harvested one).
  */
-export function warmHarvestLists(farm: string, byStemLength: boolean): void {
+export function warmHarvestLists(farm: string, byStemLength: boolean, chosen = ''): void {
   if (!farm) return;
   fetchList(harvestSetupKey(farm, byStemLength), () => scanApi.harvestSetup(farm, byStemLength))
     .then((setup) => {
-      const greenhouse = setup.success ? setup.greenhouses?.[0]?.name : undefined;
+      const greenhouse = chosen || (setup.success ? setup.greenhouses?.[0]?.name : undefined);
       if (greenhouse) {
         prefetchList(`${varietiesKey(greenhouse, byStemLength)}|`, () =>
           scanApi.searchVarieties('', greenhouse, byStemLength),
