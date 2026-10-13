@@ -4,7 +4,7 @@ import { useFieldRejectsStore } from '@/src/stores/fieldRejectsStore';
 import { scanApi, type Employee, type FieldRejectLine, type HarvestedBucket, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
 import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseGraderQr, parseTruck } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
-import { humanText, userMessage } from '@/src/services/user-message';
+import { humanText, isRepeatNotice, REPEAT_NOTICE_MS, userMessage } from '@/src/services/user-message';
 import { useScanStore } from '@/src/stores/scanStore';
 
 /**
@@ -192,8 +192,11 @@ const info = (title: string, detail?: string): Outcome => ({ tone: 'info', title
 
 const errorOf = (err: unknown): string => userMessage(err, 'Scan failed. Try again.');
 
-/** How long an "already scanned" warning stays up before it closes itself. */
-const ALREADY_SCANNED_MS = 1000;
+/** How long a warning or error stays up: "already …" and "duplicate …" close themselves. */
+export function dismissAfter(outcome: Outcome): number | undefined {
+  if (outcome.dismissAfterMs) return outcome.dismissAfterMs;
+  return isRepeatNotice(outcome.title, outcome.detail) ? REPEAT_NOTICE_MS : undefined;
+}
 
 /** Map a `{success:false, error}` reply to an outcome, using rules [substring, tone, title?]. */
 function rejected(reply: ScanReply, rules: [string, Tone, string?][] = []): Outcome {
@@ -644,7 +647,7 @@ export const ACTIONS: ActionDef[] = [
           );
         }
         if ((r.error || '').toLowerCase().includes('already graded')) {
-          return { ...warn('Already graded', humanText(r.error || '') ?? undefined), dismissAfterMs: ALREADY_SCANNED_MS };
+          return warn('Already graded', humanText(r.error || '') ?? undefined);
         }
         return rejected(r, [
           ['insufficient stock', 'error'],

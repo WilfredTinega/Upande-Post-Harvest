@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@/src/components/Button';
+import { isRepeatNotice, REPEAT_NOTICE_MS } from '@/src/services/user-message';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 /** A dialog button, as for React Native's Alert.alert. */
@@ -54,6 +55,16 @@ export function AppDialogHost() {
       show = null;
     };
   }, []);
+
+  // A plain notice that something was already done closes itself, as if OK was tapped.
+  useEffect(() => {
+    if (!d || d.buttons.length > 1 || !isRepeatNotice(d.title, d.message)) return;
+    const timer = setTimeout(() => {
+      setD((cur) => (cur === d ? null : cur));
+      d.buttons[0]?.onPress?.();
+    }, REPEAT_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [d]);
 
   const cancel = d?.buttons.find((b) => b.style === 'cancel');
   const close = (b?: DialogButton) => {

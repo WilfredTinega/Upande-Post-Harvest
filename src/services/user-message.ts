@@ -20,6 +20,14 @@ export function userMessage(err: unknown, fallback: string): string {
   return text ?? fallback;
 }
 
+/** How long an "already …" or "duplicate …" message stays up before it closes itself. */
+export const REPEAT_NOTICE_MS = 1000;
+
+/** The text says a scan or record was already done: nothing to answer, so it closes itself. */
+export function isRepeatNotice(...texts: (string | null | undefined)[]): boolean {
+  return /\b(already|duplicate)/i.test(texts.filter(Boolean).join(' '));
+}
+
 /** `text` if it reads as a sentence meant for people, otherwise null. */
 export function humanText(text: string | null | undefined): string | null {
   if (typeof text !== 'string') return null;
