@@ -8,7 +8,7 @@ import { ScannerConfig } from '@/src/components/ScannerConfig';
 import { setupComplete, useScanStore } from '@/src/stores/scanStore';
 import { spacing } from '@/src/theme';
 
-/** After sign-in, until the farm and the greenhouse/block are chosen. */
+/** After sign-in, until the farm (and for Production users the greenhouse/block) is chosen. */
 export default function SetupScreen() {
   const router = useRouter();
   const load = useScanStore((s) => s.load);

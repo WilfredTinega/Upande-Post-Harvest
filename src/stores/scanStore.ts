@@ -46,9 +46,14 @@ interface ScanState {
   setGreenhouse: (greenhouse: string) => Promise<void>;
 }
 
-/** The farm and the greenhouse/block are chosen before the home screen opens. */
-export function setupComplete(s: Pick<ScanState, 'farm' | 'greenhouse'>): boolean {
-  return !!s.farm && !!s.greenhouse;
+/** Only Production (harvesting, field rejects) scans into a greenhouse/block. */
+export function needsGreenhouse(s: Pick<ScanState, 'processes'>): boolean {
+  return s.processes.includes('production');
+}
+
+/** The farm, and for Production users the greenhouse/block, are chosen before the home screen opens. */
+export function setupComplete(s: Pick<ScanState, 'farm' | 'greenhouse' | 'processes'>): boolean {
+  return !!s.farm && (!!s.greenhouse || !needsGreenhouse(s));
 }
 
 function parseList(raw: string | null): string[] {
