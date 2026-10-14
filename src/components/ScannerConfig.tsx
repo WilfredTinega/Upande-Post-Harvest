@@ -7,11 +7,11 @@ import { SkeletonBox } from '@/src/components/Skeleton';
 import { cachedList, fetchList, harvestSetupKey } from '@/src/services/list-cache';
 import { scanApi, type HarvestSetup } from '@/src/services/scan-api';
 import { userMessage } from '@/src/services/user-message';
-import { useScanStore } from '@/src/stores/scanStore';
+import { needsGreenhouse, useScanStore } from '@/src/stores/scanStore';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 /**
- * This scanner's station (farm) and the greenhouse/block Harvesting scans into, saved
+ * This scanner's station (farm) and, for Production users, the greenhouse/block Harvesting scans into, saved
  * on the device as soon as they change. The processes come from the user's row in
  * Post Harvest Settings in ERPNext.
  */
@@ -21,6 +21,7 @@ export function ScannerConfig() {
   const farmsNotice = useScanStore((s) => s.farmsNotice);
   const farm = useScanStore((s) => s.farm);
   const setFarm = useScanStore((s) => s.setFarm);
+  const withGreenhouse = useScanStore(needsGreenhouse);
 
   const unknownFarm = !!farm && farmsSource === 'server' && !farms.includes(farm);
   const farmOptions = farm && !farms.includes(farm) ? [...farms, farm] : farms;
@@ -57,7 +58,7 @@ export function ScannerConfig() {
           <Alert tone="warn">{farmsNotice}</Alert>
         </View>
       ) : null}
-      {farm ? <GreenhouseConfig farm={farm} /> : null}
+      {farm && withGreenhouse ? <GreenhouseConfig farm={farm} /> : null}
     </View>
   );
 }
