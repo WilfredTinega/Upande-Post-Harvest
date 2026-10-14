@@ -1,13 +1,13 @@
 {
-  "id": "4bdc2c6a-5714-466f-8b13-68d3d1ccdb8b",
-  "createdAt": "2026-10-14T08:42:46.704Z",
+  "id": "aba0b6e9-9e0e-4f14-8afb-0fbc6f50565b",
+  "createdAt": "2026-10-14T08:58:58.159Z",
   "runtimeVersion": "1.1",
   "launchAsset": {
-    "hash": "H9MKDBc02m2IIzhxCDvcnvfdstit18dLEYOIypEmzag",
-    "key": "entry-371e7a3835368afc89000b77e84c522f",
+    "hash": "RyNU4LUOJ0egnWzxvA6fF1Dx7Bn3s4S1_Cdp2LC0l24",
+    "key": "entry-163c7de02301f068d22597e4e93deeef",
     "contentType": "application/javascript",
     "fileExtension": ".hbc",
-    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/_expo/static/js/android/entry-371e7a3835368afc89000b77e84c522f.hbc"
+    "url": "https://wilfredtinega.github.io/Upande-Post-Harvest/ota/android/1.1/_expo/static/js/android/entry-163c7de02301f068d22597e4e93deeef.hbc"
   },
   "assets": [
     {
@@ -604,7 +604,7 @@
     "expoClient": {
       "name": "Upande Post Harvest",
       "slug": "post-harvest",
-      "version": "1.1.10",
+      "version": "1.1.11",
       "orientation": "portrait",
       "icon": "./assets/images/icon.png",
       "scheme": "postharvest",
@@ -645,7 +645,7 @@
         "blockedPermissions": [
           "android.permission.RECORD_AUDIO"
         ],
-        "versionCode": 5110
+        "versionCode": 5111
       },
       "plugins": [
         "./plugins/withReleaseSigning",
@@ -715,7 +715,7 @@
       },
       "sdkVersion": "57.0.0"
     },
-    "appVersion": "1.1.10",
-    "publishedAt": "2026-10-14T08:42:46.729Z"
+    "appVersion": "1.1.11",
+    "publishedAt": "2026-10-14T08:58:58.173Z"
   }
 }
