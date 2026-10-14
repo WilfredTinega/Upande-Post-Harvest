@@ -51,9 +51,10 @@ export function needsGreenhouse(s: Pick<ScanState, 'processes'>): boolean {
   return s.processes.includes('production');
 }
 
-/** The farm, and for Production users the greenhouse/block, are chosen before the home screen opens. */
-export function setupComplete(s: Pick<ScanState, 'farm' | 'greenhouse' | 'processes'>): boolean {
-  return !!s.farm && (!!s.greenhouse || !needsGreenhouse(s));
+/** The farm is chosen before the home screen opens. The greenhouse/block is asked of Production
+ *  users there too, but only Harvesting needs it, so it never holds up the other processes. */
+export function setupComplete(s: Pick<ScanState, 'farm'>): boolean {
+  return !!s.farm;
 }
 
 function parseList(raw: string | null): string[] {
