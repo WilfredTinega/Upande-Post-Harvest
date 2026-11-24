@@ -584,8 +584,12 @@ export interface HubForm {
 /** A box still to go on a truck from the farm, for today's or tomorrow's orders. */
 export interface ToDispatchBox {
   box: string;
-  /** ready: packed and here; farm: pieces still at a farm or on the way to Burguret; unpacked: not packed yet. */
-  state: 'ready' | 'farm' | 'unpacked';
+  /** ready: packed and here; farm: pieces still at a farm or on the way to Burguret; unpacked: not packed yet; loaded: on a truck. */
+  state: 'ready' | 'farm' | 'unpacked' | 'loaded';
+  /** Packed in pieces at these farms, combined into one box at Burguret; null for a one-piece box. */
+  farms?: string[] | null;
+  /** Burguret: the farms whose piece is there already (combined boxes not loaded yet). */
+  here?: string[] | null;
   customer: string;
   delivery_point: string;
   consignee: string;
@@ -805,11 +809,11 @@ export const scanApi = {
       'dispatch_form.hub_dispatch',
       { vehicle, box_name, trip },
     ),
-  /** The farm's boxes still to go on a truck, for today's and tomorrow's orders. */
-  toDispatch: (farm: string) =>
+  /** The farm's boxes for the orders delivering on `date`: still to go on a truck, and loaded. */
+  toDispatch: (farm: string, date: string) =>
     callMethod<ScanReply & { boxes?: ToDispatchBox[]; counts?: Record<ToDispatchBox['state'], number> }>(
       'dispatch_form.to_dispatch',
-      { farm },
+      { farm, date, include_loaded: 1 },
     ),
   /** A Burguret truck's open Dispatch Form for the trip, or null. */
   hubForm: (vehicle: string, trip: string) => callMethod<ScanReply & { form?: HubForm | null }>('dispatch_form.hub_form', { vehicle, trip }),

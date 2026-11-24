@@ -1,21 +1,35 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/src/components/Card';
+import { Pill } from '@/src/components/Pill';
 import { ListSkeleton } from '@/src/components/Skeleton';
 import { scanApi, type ToDispatchBox } from '@/src/services/scan-api';
-import { colors, fontFamily, fontSize, spacing } from '@/src/theme';
+import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
+
+const HUB_FARM = 'Burguret';
 
 interface Props {
   farm: string;
+  /** The delivery date the page is filtered to. */
+  date: string;
   /** Bumped by the screen after each box loaded, to reload the list. */
   version: number;
 }
+
+type Filter = 'open' | 'loaded' | 'all';
+
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'open', label: 'Not loaded' },
+  { key: 'loaded', label: 'Loaded' },
+  { key: 'all', label: 'All' },
+];
 
 const STATE: Record<ToDispatchBox['state'], { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; text?: string }> = {
   ready: { icon: 'cube-outline', color: colors.success },
   farm: { icon: 'time-outline', color: colors.warning, text: 'At farm' },
   unpacked: { icon: 'ellipse-outline', color: colors.textMuted, text: 'Not packed' },
+  loaded: { icon: 'checkmark-circle', color: colors.success, text: 'Loaded' },
 };
 
 /** The day label for a delivery date: Today, Tomorrow, else the date. */
@@ -28,21 +42,32 @@ function dayLabel(date: string): string {
   return date;
 }
 
+/** Where a box packed in pieces is combined: the farms, and at Burguret how many are in. */
+function combinedText(b: ToDispatchBox, farm: string): string | null {
+  if (!b.farms?.length) return null;
+  if (farm !== HUB_FARM) {
+    const others = b.farms.filter((f) => f !== farm);
+    return `Combined at ${HUB_FARM}${others.length ? ` with ${others.join(', ')}` : ''}`;
+  }
+  return `Combined: ${b.farms.join(' + ')}`;
+}
+
 /**
- * The farm's boxes still to go on a truck for today's and tomorrow's orders, day by day,
- * delivery point by delivery point: packed ones first to scan, the rest marked.
+ * The farm's boxes for the orders delivering on the date, delivery point by delivery
+ * point: not loaded yet (packed ones to scan, the rest marked), or loaded.
  */
-export function ToDispatchPanel({ farm, version }: Props) {
+export function ToDispatchPanel({ farm, date, version }: Props) {
   const [boxes, setBoxes] = useState<ToDispatchBox[] | null>(null);
+  const [filter, setFilter] = useState<Filter>('open');
 
   const load = useCallback(async () => {
     try {
-      const r = await scanApi.toDispatch(farm);
+      const r = await scanApi.toDispatch(farm, date);
       if (r.success) setBoxes(r.boxes ?? []);
     } catch {
       // The list stays as it was; the next box reloads it.
     }
-  }, [farm]);
+  }, [farm, date]);
 
   useEffect(() => {
     const t = setTimeout(load, 0);
@@ -57,9 +82,14 @@ export function ToDispatchPanel({ farm, version }: Props) {
     );
   }
 
+  const loaded = boxes.filter((b) => b.state === 'loaded').length;
   const ready = boxes.filter((b) => b.state === 'ready').length;
+  const open = boxes.length - loaded;
+  const counts: Record<Filter, number> = { open, loaded, all: boxes.length };
+  const shown = boxes.filter((b) => filter === 'all' || (filter === 'loaded') === (b.state === 'loaded'));
+
   const days = new Map<string, Map<string, ToDispatchBox[]>>();
-  for (const b of boxes) {
+  for (const b of shown) {
     const points = days.get(b.delivery_date) ?? new Map<string, ToDispatchBox[]>();
     const point = b.delivery_point || '';
     points.set(point, [...(points.get(point) ?? []), b]);
@@ -71,18 +101,38 @@ export function ToDispatchPanel({ farm, version }: Props) {
       <Card style={s.summary}>
         <Text style={s.label}>TO DISPATCH</Text>
         <View style={s.stats}>
-          <Stat value={ready} label="Ready" tone="good" />
-          <Stat value={boxes.length - ready} label="Not ready" tone="warn" />
-          <Stat value={boxes.length} label="Boxes" />
+          <Stat value={loaded} label="Loaded" tone="good" />
+          <Stat value={ready} label="Ready" />
+          <Stat value={open - ready} label="Not ready" tone="warn" />
         </View>
-        {boxes.length === 0 ? <Text style={s.empty}>Every box is on a truck.</Text> : null}
+        <View style={s.filters}>
+          {FILTERS.map((f) => {
+            const on = filter === f.key;
+            return (
+              <Pressable
+                key={f.key}
+                onPress={() => setFilter(f.key)}
+                style={({ pressed }) => [s.filter, on && s.filterOn, pressed && s.pressed]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[s.filterText, on && s.filterTextOn]}>
+                  {f.label} · {counts[f.key]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {shown.length === 0 ? (
+          <Text style={s.empty}>{filter === 'loaded' ? 'Nothing loaded yet.' : filter === 'open' ? 'Every box is on a truck.' : 'No boxes.'}</Text>
+        ) : null}
       </Card>
 
       {[...days.entries()].map(([day, points]) => (
         <View key={day} style={s.day}>
           <Text style={s.dayName}>{dayLabel(day)}</Text>
           {[...points.entries()].map(([point, list]) => {
-            const here = list.filter((b) => b.state === 'ready').length;
+            const done = list.filter((b) => b.state === 'loaded' || b.state === 'ready').length;
             return (
               <Card key={point} style={s.point}>
                 <View style={s.pointHead}>
@@ -92,12 +142,14 @@ export function ToDispatchPanel({ farm, version }: Props) {
                   </Text>
                   <View style={s.pill}>
                     <Text style={s.pillText}>
-                      {here}/{list.length}
+                      {done}/{list.length}
                     </Text>
                   </View>
                 </View>
                 {list.map((b) => {
                   const st = STATE[b.state];
+                  const combined = combinedText(b, farm);
+                  const arrived = farm === HUB_FARM && b.farms?.length && b.state !== 'loaded' ? (b.here ?? []).length : null;
                   return (
                     <View key={b.box} style={s.row}>
                       <Ionicons name={st.icon} size={18} color={st.color} />
@@ -109,6 +161,20 @@ export function ToDispatchPanel({ farm, version }: Props) {
                           {b.customer}
                           {b.consignee && b.consignee !== b.customer ? ` · ${b.consignee}` : ''}
                         </Text>
+                        {combined ? (
+                          <View style={s.combined}>
+                            <Ionicons name="git-merge-outline" size={13} color={colors.primary} />
+                            <Text style={s.combinedText} numberOfLines={1}>
+                              {combined}
+                            </Text>
+                            {arrived !== null ? (
+                              <Pill
+                                value={`${arrived}/${b.farms!.length} here`}
+                                tone={arrived >= b.farms!.length ? 'success' : 'warn'}
+                              />
+                            ) : null}
+                          </View>
+                        ) : null}
                       </View>
                       {st.text ? <Text style={[s.state, { color: st.color }]}>{st.text}</Text> : null}
                     </View>
@@ -143,6 +209,21 @@ const s = StyleSheet.create({
   stat: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: 10, backgroundColor: colors.surfaceAlt },
   statValue: { fontFamily: fontFamily.bold, fontSize: fontSize.xl, color: colors.text },
   statLabel: { fontFamily: fontFamily.medium, fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
+  filters: { flexDirection: 'row', gap: spacing.sm },
+  filter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  filterText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
+  filterTextOn: { color: colors.textOnPrimary },
+  pressed: { opacity: 0.75 },
   empty: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.textMuted },
   day: { gap: spacing.sm },
   dayName: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.textSecondary, marginTop: spacing.xs },
@@ -163,5 +244,7 @@ const s = StyleSheet.create({
   box: { fontFamily: fontFamily.semiBold, fontSize: fontSize.sm, color: colors.text },
   boxMuted: { color: colors.textMuted },
   customer: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.textMuted },
+  combined: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  combinedText: { flexShrink: 1, fontFamily: fontFamily.medium, fontSize: fontSize.xs, color: colors.primary },
   state: { fontFamily: fontFamily.semiBold, fontSize: fontSize.xs },
 });

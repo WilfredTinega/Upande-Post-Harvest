@@ -89,6 +89,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ── Native change guard ──────────────────────────────────────────────────
+      #
+      # A JS bundle only runs on an APK built from the same native code. Every
+      # release on a runtime is published to the phones installed from that
+      # runtime's x.y.0 APK, so a native change (an SDK upgrade, a native module
+      # added or moved to another version, a config plugin, a permission) must
+      # never leave as a patch: it would reach phones whose APK cannot run it.
+      #
+      # scripts/native-guard.sh compares the native fingerprint with the one the
+      # runtime's APK was built from. Any difference turns an auto/patch release
+      # into a minor one: a new runtime and an APK. Phones still on the old
+      # runtime keep its last bundle and are offered the APK by the in-app
+      # update check.
+      - name: Native change guard
+        id: native
+        run: |
+          bash scripts/native-guard.sh
+          if grep -q '^changed=true' "$GITHUB_OUTPUT"; then
+            echo "::warning::Native code changed since the runtime's APK: this release opens a new runtime and builds an APK."
+          fi
+
       - name: Apply version bump
         id: version
         env:
@@ -98,6 +119,12 @@ jobs:
           set -euo pipefail
           bump="$BUMP"
           set_version="$SET_VERSION"
+          # Native code changed: a patch would publish a bundle the installed APKs
+          # cannot run, so open the next runtime instead.
+          if [ "${{ steps.native.outputs.changed }}" = "true" ] && [ -z "$set_version" ] &&
+             { [ "$bump" = "auto" ] || [ "$bump" = "patch" ]; }; then
+            bump=minor
+          fi
           # The very first release (no v* tag yet) ships whatever app.json
           # already says, as an APK: there is no installed build for an OTA
           # bundle to reach, so stepping 1.0.0 -> 1.0.1 would publish a bundle
@@ -340,6 +367,25 @@ jobs:
           git tag -a "${{ steps.version.outputs.tag }}" \
             -m "Post Harvest ${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.tag }}"
+
+      # The fingerprint of the native code this APK was built from: the next
+      # release on its runtime is checked against it (Native change guard).
+      - name: Record the APK's native fingerprint
+        if: steps.version.outputs.release == 'apk'
+        run: |
+          set -euo pipefail
+          mkdir -p "fingerprint/android/${{ steps.version.outputs.runtime }}"
+          echo "${{ steps.native.outputs.fingerprint }}" > "fingerprint/android/${{ steps.version.outputs.runtime }}/native-fingerprint.txt"
+
+      - name: Publish the native fingerprint to GitHub Pages
+        if: steps.version.outputs.release == 'apk'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./fingerprint
+          destination_dir: ota
+          keep_files: true
+          commit_message: 'fingerprint: ${{ steps.version.outputs.version }} (runtime ${{ steps.version.outputs.runtime }})'
 
       # Whoever downloads the APK is the one who has to trust it, so the signing
       # status belongs in the release body, not just in the build log.

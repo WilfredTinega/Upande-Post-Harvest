@@ -185,7 +185,7 @@ export function SearchPicker<T>({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={s.separator} />}
-              ListEmptyComponent={loading ? <ListSkeleton /> : error ? null : <Text style={s.empty}>{emptyText}</Text>}
+              ListEmptyComponent={loading ? <ListSkeleton /> : error ? undefined : <Text style={s.empty}>{emptyText}</Text>}
               renderItem={({ item }) => {
                 const r = row(item);
                 const key = keyOf(item);

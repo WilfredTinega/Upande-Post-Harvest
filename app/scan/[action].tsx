@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type TextInputInstance } from 'react-native';
 import { dialog } from '@/src/components/AppDialog';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,7 +24,7 @@ import { NewLoadingPlanForm } from '@/src/components/NewLoadingPlanForm';
 import { DeliveryPanel } from '@/src/components/DeliveryPanel';
 import { ToDispatchPanel } from '@/src/components/ToDispatchPanel';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
-import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
+import { deliveryDate, useDeliveryDate, useDispatchDate } from '@/src/stores/deliveryDateStore';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import {
@@ -111,9 +111,9 @@ export default function ScanScreen() {
   const [pending, setPending] = useState(0);
 
   const scanRef = useRef<ScanFieldHandle>(null);
-  const stemsRef = useRef<TextInput>(null);
-  const bedRef = useRef<TextInput>(null);
-  const undispatchRef = useRef<TextInput>(null);
+  const stemsRef = useRef<TextInputInstance>(null);
+  const bedRef = useRef<TextInputInstance>(null);
+  const undispatchRef = useRef<TextInputInstance>(null);
   // Set further down, once the screen's fields are known: focus the next field to fill in.
   const focusNextRef = useRef<() => void>(() => {});
   const focusNext = useCallback(() => focusNextRef.current(), []);
@@ -255,7 +255,7 @@ export default function ScanScreen() {
         (!stemMode || !!cur.stemLength) &&
         (!req.includes('harvester') || !!cur.harvester) &&
         (!req.includes('fieldRejectReason') || !!cur.rejectionReason);
-      let next: RefObject<TextInput | null> | null = null;
+      let next: RefObject<TextInputInstance | null> | null = null;
       if (formOpen && picked && req.includes('bed') && !cur.bed.trim()) next = bedRef;
       else if (formOpen && picked && req.includes('stems') && !cur.stems) next = stemsRef;
       else if (req.includes('undispatchReason') && !cur.undispatchReason.trim()) next = undispatchRef;
@@ -396,6 +396,8 @@ export default function ScanScreen() {
   // Delivery: the date the page is filtered to (shared with the Delivery home figures).
   const deliveryOffset = useDeliveryDate((st) => st.offset);
   const deliveryDay = deliveryDate(deliveryOffset);
+  // Load & Dispatch: the delivery date its To Dispatch list is filtered to.
+  const dispatchDay = deliveryDate(useDispatchDate((st) => st.offset));
 
 
   const [fetching, setFetching] = useState(false);
@@ -496,9 +498,13 @@ export default function ScanScreen() {
     >
       {/* Full width above the rest: the day whose loaded boxes are listed. */}
       {action.panel === 'delivery' ? <DeliveryDateFilter /> : null}
+      {action.key === 'dispatch-form' ? (
+        <DeliveryDateFilter store={useDispatchDate} right={<Chip icon="location-outline" label={farm || 'No farm'} bold />} />
+      ) : null}
       <View style={s.metaRow}>
-        {/* Delivery covers every farm's boxes, so no farm over its date. */}
-        {action.needsFarm && action.panel !== 'delivery' ? (
+        {/* Delivery covers every farm's boxes, so no farm over its date; Load & Dispatch has it
+            in its date card. */}
+        {action.needsFarm && action.panel !== 'delivery' && action.key !== 'dispatch-form' ? (
           <Chip icon="location-outline" label={farm || 'No farm'} bold />
         ) : null}
         {action.needsFarm && greenhouseInSettings ? (
@@ -966,7 +972,7 @@ export default function ScanScreen() {
               onDispatched={() => setAndRefocus({ truck: null, trip: '' })}
             />
           ) : null}
-          {action.key === 'dispatch-form' && farm ? <ToDispatchPanel farm={farm} version={session.formVersion} /> : null}
+          {action.key === 'dispatch-form' && farm ? <ToDispatchPanel farm={farm} date={dispatchDay} version={session.formVersion} /> : null}
           {action.panel === 'delivery' ? <DeliveryPanel date={deliveryDay} version={session.deliveryVersion} /> : null}
           {action.panel &&
           action.panel !== 'rejects' &&

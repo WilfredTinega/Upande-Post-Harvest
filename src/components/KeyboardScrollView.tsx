@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Keyboard, ScrollView, StyleSheet, TextInput, View, type ScrollViewProps } from 'react-native';
+import { Keyboard, ScrollView, StyleSheet, TextInput, View, type ScrollViewProps, type HostInstance, type ScrollViewInstance } from 'react-native';
 import { spacing } from '@/src/theme';
 import { KEYBOARD_PANS } from '@/src/services/app-version';
 
@@ -15,8 +15,8 @@ const GAP = spacing.lg;
  * only as far as the focused field needs.
  */
 export function KeyboardScrollView({ children, contentContainerStyle, onScroll, onLayout, ...rest }: ScrollViewProps) {
-  const scrollRef = useRef<ScrollView>(null);
-  const frameRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const frameRef = useRef<HostInstance>(null);
   const keyboardTop = useRef<number | null>(null);
   const scrollY = useRef(0);
   const [covered, setCovered] = useState(0);

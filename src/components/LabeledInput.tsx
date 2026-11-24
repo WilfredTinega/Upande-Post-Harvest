@@ -5,6 +5,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type TextInputInstance,
   type TextInputProps,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +20,7 @@ interface LabeledInputProps extends Omit<TextInputProps, 'style'> {
   helperText?: string;
 }
 
-export const LabeledInput = React.forwardRef<TextInput, LabeledInputProps>(function LabeledInput(
+export const LabeledInput = React.forwardRef<TextInputInstance, LabeledInputProps>(function LabeledInput(
   { label, iconLeft, trailingIcon, onPressTrailing, invalid, helperText, ...rest },
   ref,
 ) {

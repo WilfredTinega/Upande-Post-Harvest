@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Keyboard, type DimensionValue, type View } from 'react-native';
+import { Keyboard, type DimensionValue, type HostInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing } from '@/src/theme';
 
@@ -14,7 +14,7 @@ const MAX_SHARE = 0.75;
  */
 export function useSheetLayout(open: boolean) {
   const insets = useSafeAreaInsets();
-  const overlayRef = useRef<View>(null);
+  const overlayRef = useRef<HostInstance>(null);
   const keyboardTop = useRef<number | null>(null);
   const [overlayHeight, setOverlayHeight] = useState(0);
   const [overlap, setOverlap] = useState(0);

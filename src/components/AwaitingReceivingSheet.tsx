@@ -65,7 +65,7 @@ export function AwaitingReceivingSheet({ farm, open, onClose }: Props) {
             showsVerticalScrollIndicator={false}
             ItemSeparatorComponent={() => <View style={s.separator} />}
             ListEmptyComponent={
-              buckets === null && !error ? <ListSkeleton rows={4} /> : error ? null : <Text style={s.empty}>Every bucket has been received.</Text>
+              buckets === null && !error ? <ListSkeleton rows={4} /> : error ? undefined : <Text style={s.empty}>Every bucket has been received.</Text>
             }
             renderItem={({ item: b }) => (
               <View style={s.row}>

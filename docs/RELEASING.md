@@ -85,11 +85,18 @@ rather than silently emit a lower code.
 `runtimeVersion` is the literal string `"major.minor"` (`1.0.6` → `"1.0"`). It
 is the over-the-air compatibility gate: see [OTA.md](OTA.md).
 
-**A native change needs a minor bump.** Adding a native module, a permission, a
-config plugin or an SDK upgrade cannot travel in a JS bundle. Release it by
-running the **Release** workflow manually (Actions → Release → Run workflow) with
-`bump: minor`, or merge it and let the patch counter roll over, never by a plain
-patch release.
+**A native change needs a minor bump, and the release makes it.** Adding a
+native module or moving one to another version, a permission, a config plugin
+or an SDK upgrade cannot travel in a JS bundle. The Release workflow's **Native
+change guard** (`scripts/native-guard.sh`) hashes the native code with
+`scripts/native-fingerprint.mjs` and compares it with the fingerprint the
+runtime's APK was built from (`ota/android/<runtime>/native-fingerprint.txt` on
+GitHub Pages, written by every APK release; for a runtime released before that,
+its `vX.Y.0` tag is hashed). If they differ, an `auto`/`patch` release becomes a
+minor: a new runtime and an APK, never a bundle for phones that cannot run it.
+The PR's **Version preview** runs the same check and says so. Phones still on
+the old runtime keep its last bundle (`keep_files`) and the in-app update check
+offers them the APK.
 
 Commit style does not affect the version, and it is not enforced. If a subject
 starts with a conventional-commit type (`feat:`, `fix:`, `perf:`, `refactor:`,

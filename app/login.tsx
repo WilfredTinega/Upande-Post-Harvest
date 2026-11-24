@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View, type TextInputInstance } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, shadow, spacing } from '@/src/theme';
@@ -34,7 +34,7 @@ export default function LoginScreen() {
   const [bioAvailable, setBioAvailable] = useState(false);
   const [bioBusy, setBioBusy] = useState(false);
 
-  const passwordRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
 
   // Vertically centred by measured offset, not justifyContent (see s.scroll).
   const [viewHeight, setViewHeight] = useState(0);
