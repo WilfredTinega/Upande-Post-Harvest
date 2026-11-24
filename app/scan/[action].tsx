@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type TextInputInstance } from 'react-native';
 import { dialog } from '@/src/components/AppDialog';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -111,9 +111,9 @@ export default function ScanScreen() {
   const [pending, setPending] = useState(0);
 
   const scanRef = useRef<ScanFieldHandle>(null);
-  const stemsRef = useRef<TextInput>(null);
-  const bedRef = useRef<TextInput>(null);
-  const undispatchRef = useRef<TextInput>(null);
+  const stemsRef = useRef<TextInputInstance>(null);
+  const bedRef = useRef<TextInputInstance>(null);
+  const undispatchRef = useRef<TextInputInstance>(null);
   // Set further down, once the screen's fields are known: focus the next field to fill in.
   const focusNextRef = useRef<() => void>(() => {});
   const focusNext = useCallback(() => focusNextRef.current(), []);
@@ -255,7 +255,7 @@ export default function ScanScreen() {
         (!stemMode || !!cur.stemLength) &&
         (!req.includes('harvester') || !!cur.harvester) &&
         (!req.includes('fieldRejectReason') || !!cur.rejectionReason);
-      let next: RefObject<TextInput | null> | null = null;
+      let next: RefObject<TextInputInstance | null> | null = null;
       if (formOpen && picked && req.includes('bed') && !cur.bed.trim()) next = bedRef;
       else if (formOpen && picked && req.includes('stems') && !cur.stems) next = stemsRef;
       else if (req.includes('undispatchReason') && !cur.undispatchReason.trim()) next = undispatchRef;

@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
@@ -49,7 +49,7 @@ export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
   },
   ref,
 ) {
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
   const [text, setText] = useState('');
   // Green border while a hardware scan will land here; amber when it won't.
   const [hasFocus, setHasFocus] = useState(false);
