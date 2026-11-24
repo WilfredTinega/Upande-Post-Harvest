@@ -19,14 +19,17 @@ import { GradedRejectsPanel } from '@/src/components/GradedRejectsPanel';
 import { FieldRejectsList } from '@/src/components/FieldRejectsList';
 import { WalkInSaleList } from '@/src/components/WalkInSaleList';
 import { WalkInOutboxCard } from '@/src/components/WalkInOutboxCard';
+import { HubDispatchPanel } from '@/src/components/HubDispatchPanel';
 import { NewLoadingPlanForm } from '@/src/components/NewLoadingPlanForm';
 import { DeliveryPanel } from '@/src/components/DeliveryPanel';
+import { ToDispatchPanel } from '@/src/components/ToDispatchPanel';
 import { DeliveryDateFilter } from '@/src/components/DeliveryDateFilter';
 import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
 import { ScanField, type ScanFieldHandle } from '@/src/scan/ScanField';
 import { focusWhenReady } from '@/src/scan/focus';
 import {
   overBucketLimit,
+  rememberTrip,
   dismissAfter,
   dispatchPlan,
   HUB_FARM,
@@ -793,7 +796,7 @@ export default function ScanScreen() {
                   label="Truck"
                   value={session.truck}
                   empty="Scan the Truck Label"
-                  onClear={() => setAndRefocus({ truck: null })}
+                  onClear={() => setAndRefocus({ truck: null, trip: '' })}
                 />
               ) : null}
               {req.includes('plan') ? (
@@ -950,6 +953,20 @@ export default function ScanScreen() {
           {/* A submitted sale starts the page afresh: empty list, count back to 0. */}
           {action.panel === 'walk-in-sale' ? <WalkInSaleList onSold={() => setCount(0)} /> : null}
           {action.panel === 'walk-in-sale' ? <WalkInOutboxCard /> : null}
+          {/* Burguret's truck: trip, its Dispatch Form so far, and Dispatch. */}
+          {action.key === 'dispatch-form' && farm === HUB_FARM && session.truck ? (
+            <HubDispatchPanel
+              truck={session.truck}
+              trip={session.trip}
+              onTrip={(trip) => {
+                rememberTrip(session.truck as string, trip);
+                setAndRefocus({ trip });
+              }}
+              version={session.formVersion}
+              onDispatched={() => setAndRefocus({ truck: null, trip: '' })}
+            />
+          ) : null}
+          {action.key === 'dispatch-form' && farm ? <ToDispatchPanel farm={farm} version={session.formVersion} /> : null}
           {action.panel === 'delivery' ? <DeliveryPanel date={deliveryDay} version={session.deliveryVersion} /> : null}
           {action.panel &&
           action.panel !== 'rejects' &&

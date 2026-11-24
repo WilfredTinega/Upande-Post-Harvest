@@ -26,6 +26,8 @@ export const StorageKeys = {
   walkInData: 'walk_in_data',
   // Walk-in sales submitted on the phone, still going to the server (JSON OutboxSale[]).
   walkInOutbox: 'walk_in_outbox',
+  // Burguret: the trip each truck was last loaded for (JSON {truck: trip}).
+  truckTrips: 'truck_trips',
   biometricEnabled: 'biometric_enabled',
   // The log-out mark (Post Harvest Settings' Log Out Devices) seen since the last
   // password sign-in; the app signs out when the server's mark moves past it.

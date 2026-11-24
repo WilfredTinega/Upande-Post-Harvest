@@ -2,9 +2,10 @@ import type { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import type { ComponentProps } from 'react';
 import { useFieldRejectsStore } from '@/src/stores/fieldRejectsStore';
+import { storage, StorageKeys } from '@/src/services/storage';
 import { bunchStems, useWalkInSaleStore, walkInBunch, walkInPrice } from '@/src/stores/walkInSaleStore';
 import { scanApi, type Employee, type FieldRejectLine, type WalkInSaleLine, type HarvestedBucket, type LoadingPlan, type OplInfo, type PlanReply, type ScanReply } from '@/src/services/scan-api';
-import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseGraderQr, parseTruck } from './parse';
+import { isBoxLabel, isOplUrl, parseBucketId, parseBunch, parseEmployee, parseGraderQr, parseTruck, type Bunch } from './parse';
 import { PROCESSES, type ProcessKey } from './processes';
 import { humanText, isRepeatNotice, REPEAT_NOTICE_MS, userMessage } from '@/src/services/user-message';
 import { useScanStore } from '@/src/stores/scanStore';
@@ -35,6 +36,10 @@ export interface ScanSession {
   packer: Employee | null;
   opl: OplInfo | null;
   truck: string | null;
+  /** Burguret's truck: the trip its Dispatch Form is for ('Nairobi' or 'Wells Fargo'); '' until picked. */
+  trip: string;
+  /** Bumped after each box onto Burguret's truck, to reload its form. */
+  formVersion: number;
   undispatchReason: string;
   rejectionReason: string;
   /** The truck's Loading Plan (Loading Plan / Loading / Dispatch). */
@@ -61,6 +66,8 @@ export interface ScanSession {
   harvestEdit: HarvestedBucket | null;
   /** Most stems one bucket of the picked variety holds (Harvesting, Edit Harvest); null until known. */
   maxStems: number | null;
+  /** Ungrade: the graded bunch scanned, waiting for its new label. */
+  relabelFrom: Bunch | null;
 }
 
 /** The stems typed are more than one bucket of the variety holds. */
@@ -72,6 +79,8 @@ export const emptySession = (farm: string): ScanSession => ({
   packer: null,
   opl: null,
   truck: null,
+  trip: '',
+  formVersion: 0,
   undispatchReason: '',
   rejectionReason: '',
   plan: null,
@@ -88,6 +97,7 @@ export const emptySession = (farm: string): ScanSession => ({
   deliveryVersion: 0,
   harvestEdit: null,
   maxStems: null,
+  relabelFrom: null,
 });
 
 /** Session inputs shown above the scan field. */
@@ -165,6 +175,8 @@ export interface ActionDef {
   requirements: Requirement[];
   /** Opens on the truck list to start a loading plan (New Loading Plan). */
   startsPlan?: boolean;
+  /** Not offered any more (Burguret's Loading Plan screens: its trucks load on Dispatch Forms). */
+  retired?: boolean;
   /** Only at Burguret ('hub'), or only at the other farms ('farms'); every farm when unset. */
   station?: 'hub' | 'farms';
   /** The variety picker lists only what was harvested into the greenhouse today. */
@@ -687,19 +699,39 @@ export const ACTIONS: ActionDef[] = [
   {
     key: 'ungrade',
     label: 'Ungrade',
-    description: 'Return a graded bunch to the packhouse store',
+    description: 'Move a graded bunch onto its new label, keeping its age',
+    notes:
+      'Moves a graded bunch onto a new label, for a different stem length.\n\n• Scan the graded bunch, then its new label straight away.\n• Same variety and bunch size. The bunch must not be packed, sold, in the shop or discarded.\n• Keeps its grading, harvest date and age. No stock moves.\n• Scan the old label again to start over.',
     group: PACKHOUSE,
     icon: 'arrow-undo-outline',
     needsFarm: true,
     requirements: ['graderOptional'],
-    prompt: () => 'Scan a bunch QR',
-    handle: (code, s) =>
+    prompt: (s) => (s.relabelFrom ? `Scan the new label for ${s.relabelFrom.bunch_id}` : 'Scan the graded bunch'),
+    handle: (code, s, update) =>
       run(async () => {
         const p = bunchPayload(code);
         if (!p) return warn('Invalid Bunch QR Code');
-        const r = await scanApi.ungrade(p.json, p.bunch.farm || s.farm, graderId(s.grader));
-        if (r.success) return ok(`${p.bunch.variety} ungraded`, `${r.stems ?? ''} stems returned to packhouse`);
-        return rejected(r);
+        const from = s.relabelFrom;
+        if (from && from.bunch_id === p.bunch.bunch_id) {
+          update({ relabelFrom: null });
+          return info('Ungrade cancelled', `${from.bunch_id} keeps its label`);
+        }
+        if (!from) {
+          const r = await scanApi.relabel(p.json, '', p.bunch.farm || s.farm, graderId(s.grader));
+          if (!r.success) return rejected(r);
+          update({ relabelFrom: p.bunch });
+          return info(
+            'Scan the new label',
+            `${p.bunch.bunch_id} · ${p.bunch.variety} · ${r.stem_length ?? p.bunch.stem_length ?? ''} · ${r.bunch_size ?? p.bunch.bunch_size ?? ''}`,
+          );
+        }
+        const r = await scanApi.relabel(JSON.stringify(from), p.json, from.farm || s.farm, graderId(s.grader));
+        if (!r.success) return rejected(r);
+        update({ relabelFrom: null });
+        return ok(
+          `${from.variety} relabelled`,
+          `${r.old_bunch_id} ${r.old_stem_length ?? ''} → ${r.bunch_id} ${r.stem_length ?? ''} · same age`,
+        );
       }),
   },
   {
@@ -820,6 +852,7 @@ export const ACTIONS: ActionDef[] = [
     icon: 'paper-plane-outline',
     needsFarm: true,
     station: 'hub',
+    retired: true,
     requirements: ['truckPick'],
     panel: 'dispatch',
     prompt: (s) =>
@@ -883,23 +916,50 @@ export const ACTIONS: ActionDef[] = [
     key: 'dispatch-form',
     label: 'Load & Dispatch',
     description: 'Scan the truck, then each box onto its Dispatch Form',
+    notes:
+      'Scan the truck label, then each box as it goes on; the boxes go on the truck’s Dispatch Form.\n\n• At Burguret, choose the trip (Nairobi or Wells Fargo) after the truck. A box packed in pieces at several farms goes on once, as its combined box, whichever piece is scanned.\n• Dispatch truck (Burguret) submits the form when loading is done.',
     group: DISPATCH,
     icon: 'paper-plane-outline',
     needsFarm: true,
-    station: 'farms',
     requirements: ['truck'],
-    prompt: (s) => (s.truck ? 'Scan each box as it goes onto the truck' : 'Scan the Truck Label'),
+    prompt: (s) =>
+      !s.truck
+        ? 'Scan the Truck Label'
+        : s.farm === HUB_FARM && !s.trip
+          ? 'Choose the trip: Nairobi or Wells Fargo'
+          : 'Scan each box as it goes onto the truck',
     handle: (code, s, update) =>
       run(async () => {
         if (!s.truck) {
           const truck = parseTruck(code);
           if (!truck) return warn('Please scan the Truck Label first');
-          update({ truck });
-          return info(`Truck ${truck}`, 'Now scan the boxes');
+          // Burguret: the trip this truck was last loaded for, until another is picked.
+          update({ truck, trip: s.farm === HUB_FARM ? lastTrip(truck) : '' });
+          return info(`Truck ${truck}`, s.farm === HUB_FARM ? 'Choose the trip, then scan the boxes' : 'Now scan the boxes');
         }
         if (parseTruck(code)) return warn('Truck already set', 'Clear the truck to load another one');
         if (!isBoxLabel(code)) return warn('Invalid Box Label!');
+        if (s.farm === HUB_FARM) {
+          if (!s.trip) return warn('Choose the trip first', 'Nairobi or Wells Fargo');
+          const h = await scanApi.hubDispatch(s.truck, code.trim(), s.trip);
+          if (h.success) {
+            update({ formVersion: s.formVersion + 1 });
+            return ok(
+              h.consolidated && h.box !== h.scanned ? `Loaded ${h.box}` : `Loaded ${code.trim()}`,
+              [h.consolidated && h.box !== h.scanned ? `combined box, from ${h.scanned}` : '', `${h.boxes_on_dispatch} on ${h.dispatch_form}`]
+                .filter(Boolean)
+                .join(' · '),
+            );
+          }
+          return rejected(h, [
+            ['already loaded', 'warning'],
+            ['already dispatched', 'warning', 'Box already dispatched'],
+            ['already loaded on a wells fargo', 'warning', 'Box already on a Wells Fargo truck'],
+            ['not found', 'error'],
+          ]);
+        }
         const r = await scanApi.dispatch(s.truck, code.trim(), s.farm);
+        if (r.success) update({ formVersion: s.formVersion + 1 });
         if (r.success) return ok(`Loaded ${code.trim()}`, [r.progress, r.dispatch_form].filter(Boolean).join(' · '));
         return rejected(r, [
           ['already loaded', 'warning', 'Box already loaded'],
@@ -1140,26 +1200,29 @@ export const ACTIONS: ActionDef[] = [
   },
 ];
 
-// New Loading Plan: Load & Dispatch opening on the truck list, its own tile on the Dispatch home.
-{
-  const loading = ACTIONS.find((a) => a.key === 'loading')!;
-  ACTIONS.splice(ACTIONS.indexOf(loading), 0, {
-    ...loading,
-    key: 'new-loading-plan',
-    label: 'New Loading Plan',
-    description: 'Start a truck’s loading plan for this farm',
-    icon: 'add-circle-outline',
-    startsPlan: true,
-  });
+
+/** Burguret: the trip each truck was last loaded for, so its next scan picks it again. */
+const truckTrips: Record<string, string> = {};
+storage
+  .get(StorageKeys.truckTrips)
+  .then((raw) => Object.assign(truckTrips, raw ? JSON.parse(raw) : {}))
+  .catch(() => undefined);
+export function lastTrip(truck: string): string {
+  return truckTrips[truck] ?? '';
+}
+export function rememberTrip(truck: string, trip: string): void {
+  truckTrips[truck] = trip;
+  storage.set(StorageKeys.truckTrips, JSON.stringify(truckTrips)).catch(() => undefined);
 }
 
 export function getAction(key: string | undefined): ActionDef | undefined {
   return ACTIONS.find((a) => a.key === key);
 }
 
-/** Whether the action is used at `farm`: Burguret loads trucks by Loading Plan, the other
- *  farms scan boxes straight onto the truck's Dispatch Form. Before a farm is chosen, Burguret's. */
+/** Whether the action is used at `farm`. Every farm, Burguret too, scans boxes straight onto
+ *  the truck's Dispatch Form; Loading Plans are not used. Before a farm is chosen, Burguret's. */
 export function atStation(a: ActionDef, farm: string): boolean {
+  if (a.retired) return false;
   if (!a.station) return true;
   return (a.station === 'hub') === (!farm || farm === HUB_FARM);
 }
