@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { deliveryDate, useDeliveryDate } from '@/src/stores/deliveryDateStore';
+import { deliveryDate, useDeliveryDate, useDispatchDate } from '@/src/stores/deliveryDateStore';
 import { borderRadius, colors, fontFamily, fontSize, spacing } from '@/src/theme';
 
 /** "2026-10-07" → "Tue, 7 Oct". */
@@ -14,9 +14,18 @@ function prettyDate(iso: string): string {
 }
 
 /** Delivery-date stepper, as in the Quality app: ‹ Today › with its date below, a day at a time. */
-export function DeliveryDateFilter({ onChange }: { onChange?: () => void }) {
-  const offset = useDeliveryDate((s) => s.offset);
-  const step = useDeliveryDate((s) => s.step);
+export function DeliveryDateFilter({
+  onChange,
+  store = useDeliveryDate,
+  right,
+}: {
+  onChange?: () => void;
+  store?: typeof useDispatchDate;
+  /** Shown at the top right, level with "Delivering" (Load & Dispatch: the farm). */
+  right?: React.ReactNode;
+}) {
+  const offset = store((s) => s.offset);
+  const step = store((s) => s.step);
   const go = (days: number) => {
     step(days);
     onChange?.();
@@ -26,7 +35,10 @@ export function DeliveryDateFilter({ onChange }: { onChange?: () => void }) {
   const today = offset === 0;
   return (
     <View style={s.card}>
-      <Text style={s.label}>Delivering</Text>
+      <View style={s.head}>
+        <Text style={s.label}>Delivering</Text>
+        {right}
+      </View>
       <View style={s.row}>
         <View style={s.stepper}>
           <Pressable onPress={() => go(-1)} hitSlop={8} style={s.btn} accessibilityLabel="Previous day">
@@ -55,6 +67,7 @@ const s = StyleSheet.create({
     paddingVertical: spacing.md,
     marginBottom: spacing.md,
   },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   row: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xs },
   // ‹ and › at the two ends, the Tomorrow button right after ›.
   stepper: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

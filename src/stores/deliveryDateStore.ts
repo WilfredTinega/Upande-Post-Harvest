@@ -22,3 +22,9 @@ export const useDeliveryDate = create<DeliveryDateState>((set, get) => ({
   offset: 0,
   step: (days) => set({ offset: get().offset + days }),
 }));
+
+/** The Load & Dispatch page's delivery date: tomorrow to start with, as trucks load the day before. */
+export const useDispatchDate = create<DeliveryDateState>((set, get) => ({
+  offset: 1,
+  step: (days) => set({ offset: get().offset + days }),
+}));
