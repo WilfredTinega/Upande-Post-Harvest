@@ -570,6 +570,29 @@ export interface LoadingPlan {
   }[];
 }
 
+/** A Burguret truck's open Dispatch Form: its boxes by customer and delivery point. */
+export interface HubForm {
+  name: string;
+  vehicle: string;
+  trip: string;
+  date: string;
+  docstatus: number;
+  boxes: number;
+  customers: { customer: string; delivery_point: string; boxes: number }[];
+}
+
+/** A box still to go on a truck from the farm, for today's or tomorrow's orders. */
+export interface ToDispatchBox {
+  box: string;
+  /** ready: packed and here; farm: pieces still at a farm or on the way to Burguret; unpacked: not packed yet. */
+  state: 'ready' | 'farm' | 'unpacked';
+  customer: string;
+  delivery_point: string;
+  consignee: string;
+  delivery_date: string;
+  box_number: number;
+}
+
 /** A farm truck on its way to Burguret: a farm's Dispatch Form to Burguret, or an older farm Loading Plan (`name`). */
 export interface IncomingTruck {
   name: string;
@@ -693,6 +716,11 @@ export const scanApi = {
     callMethod<ScanReply>('bunch_actions.graded_discard', { scan_data, farm, graded_by }),
   ungrade: (scan_data: string, farm: string, graded_by?: string) =>
     callMethod<ScanReply>('ungrade_bunch.ungrade_bunch', { scan_data, farm, graded_by }),
+  /** Ungrade by relabelling: with no `new_scan_data`, only checks the graded bunch can move. */
+  relabel: (scan_data: string, new_scan_data: string, farm: string, graded_by?: string) =>
+    callMethod<
+      ScanReply & { stem_length?: string; bunch_size?: string; old_bunch_id?: string; old_stem_length?: string }
+    >('ungrade_bunch.relabel_bunch', { scan_data, new_scan_data, farm, graded_by }),
 
   // Shop: day 4 flowers to the shop, walk-in shop; Packhouse: graded rejects
   localSale: (scan_data: string, farm: string) => callMethod<ScanReply>('shop.local_sale', { scan_data, farm }),
@@ -771,6 +799,25 @@ export const scanApi = {
       leave_unloaded: leaveUnloaded ? 1 : 0,
       wells_fargo: wellsFargo ? 1 : 0,
     }),
+  /** A box onto a Burguret truck's Dispatch Form for the trip ('Nairobi' or 'Wells Fargo'); a piece goes on as its combined box. */
+  hubDispatch: (vehicle: string, box_name: string, trip: string) =>
+    callMethod<ScanReply & { box?: string; scanned?: string; consolidated?: boolean; dispatch_form?: string; boxes_on_dispatch?: number; form?: HubForm }>(
+      'dispatch_form.hub_dispatch',
+      { vehicle, box_name, trip },
+    ),
+  /** The farm's boxes still to go on a truck, for today's and tomorrow's orders. */
+  toDispatch: (farm: string) =>
+    callMethod<ScanReply & { boxes?: ToDispatchBox[]; counts?: Record<ToDispatchBox['state'], number> }>(
+      'dispatch_form.to_dispatch',
+      { farm },
+    ),
+  /** A Burguret truck's open Dispatch Form for the trip, or null. */
+  hubForm: (vehicle: string, trip: string) => callMethod<ScanReply & { form?: HubForm | null }>('dispatch_form.hub_form', { vehicle, trip }),
+  /** Dispatch a Burguret truck: submit its open Dispatch Form for the trip. */
+  hubSend: (vehicle: string, trip: string) =>
+    callMethod<ScanReply & { message?: string; form?: HubForm }>('dispatch_form.hub_send', { vehicle, trip }, { timeout: SLOW_WRITE_MS }),
+  /** The farms' trucks on their way to Burguret (Dispatch Forms not marked arrived). */
+  incomingTrucks: () => callMethod<ScanReply & { trucks?: (IncomingTruck & { sent?: boolean })[] }>('dispatch_flow.incoming', {}),
   /** A farm's truck arrived at Burguret: its boxes go onto Burguret's truck `hubPlan` (returned). */
   arriveAtHub: (plan: string, hubPlan: string) =>
     callMethod<PlanReply & { added?: number }>('dispatch_flow.arrive_at_hub', { plan, hub_plan: hubPlan }),

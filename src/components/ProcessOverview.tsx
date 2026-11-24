@@ -5,6 +5,7 @@ import type { Overview } from '@/src/services/scan-api';
 import { ProcessOverviewSkeleton } from '@/src/components/Skeleton';
 import { AwaitingReceivingSheet } from '@/src/components/AwaitingReceivingSheet';
 import type { ProcessKey } from '@/src/scan/processes';
+import { HUB_FARM } from '@/src/scan/actions';
 import { fontFamily, fontSize, spacing } from '@/src/theme';
 
 /**
@@ -36,7 +37,7 @@ interface Figures {
 const num = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : Math.round(v).toLocaleString();
 
-function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
+function figuresFor(process: ProcessKey, o: Overview | null, farm: string): Figures | null {
   if (process === 'production') {
     const p = o?.production;
     if (!p) return null;
@@ -131,7 +132,7 @@ function figuresFor(process: ProcessKey, o: Overview | null): Figures | null {
       },
       tiles: [
         { chip: 'LOADED', value: loaded, unit: `of ${num(packed)} boxes · ${num(d.farm_trucks_loading)} trucks loading` },
-        { chip: 'DISPATCHED', value: d.farm_trucks_dispatched, unit: 'trucks to Burguret today' },
+        { chip: 'DISPATCHED', value: d.farm_trucks_dispatched, unit: farm === HUB_FARM ? 'trucks today' : 'trucks to Burguret today' },
       ],
     };
   }
@@ -160,7 +161,7 @@ interface Props {
 }
 
 export function ProcessOverview({ process, farm, overview, loading, error, onRetry }: Props) {
-  const f = figuresFor(process, overview);
+  const f = figuresFor(process, overview, farm);
   const [sheet, setSheet] = useState<Figure['sheet'] | null>(null);
   // First load (nothing to show yet): shimmering tiles in the figures' own shape.
   if (!f && !overview && (loading || !error)) return <ProcessOverviewSkeleton />;
