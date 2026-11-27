@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,13 +28,19 @@ type Props = {
 
 const DEBOUNCE_MS = 300;
 const REFOCUS_DELAY_MS = 100;
+/** A plain-text scan (box label, OPL link) is complete once the scanner stops typing this long. */
+const SCAN_IDLE_MS = 150;
+/** Scanners type a character every few milliseconds; a person types far slower than this. */
+const SCANNER_MS_PER_CHAR = 50;
 
 /**
  * Scan input for Honeywell keyboard-wedge scanners, with a camera fallback.
  *
- * A scan completes on Enter (the usual scanner suffix) or, for scanners
- * configured without a suffix, as soon as the buffer is a complete JSON
- * object (bunch / bucket / truck labels are JSON).
+ * A scan completes on Enter (the usual scanner suffix), on a newline typed into
+ * the buffer, as soon as the buffer is a complete JSON object (bunch / bucket /
+ * truck labels are JSON), or, for plain text (box labels), once a burst typed
+ * at scanner speed stops: the Enter a Honeywell sends does not always reach
+ * onSubmitEditing, which left box labels sitting in the field.
  */
 export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
   {
@@ -59,8 +65,19 @@ export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
   const programmaticRef = useRef(false);
   // Set while the camera screen is open so sticky focus doesn't fight it.
   const navigatingAwayRef = useRef(false);
+  // When the current buffer's first character arrived, and the pending idle check.
+  const burstStartRef = useRef(0);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    },
+    [],
+  );
 
   const clearProgrammatic = () => {
+    burstStartRef.current = 0;
     programmaticRef.current = true;
     setText('');
     setTimeout(() => {
@@ -78,6 +95,8 @@ export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
   }));
 
   const fire = (code: string) => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = null;
     const trimmed = code.trim();
     if (!trimmed) return;
     const now = Date.now();
@@ -91,15 +110,38 @@ export const ScanField = forwardRef<ScanFieldHandle, Props>(function ScanField(
   const handleChange = (next: string) => {
     setText(next);
     if (programmaticRef.current) return;
-    const trimmed = next.trim();
-    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      try {
-        JSON.parse(trimmed);
-        fire(trimmed);
-      } catch {
-        // partial buffer — keep accumulating
-      }
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = null;
+    // The scanner's Enter arrived as a character: the scan is what came before it.
+    const line = next.match(/^([^\r\n]*)[\r\n]/);
+    if (line) {
+      fire(line[1]);
+      return;
     }
+    const trimmed = next.trim();
+    if (!trimmed) {
+      burstStartRef.current = 0;
+      return;
+    }
+    if (!burstStartRef.current || next.length <= 1) burstStartRef.current = Date.now();
+    if (trimmed.startsWith('{')) {
+      if (trimmed.endsWith('}')) {
+        try {
+          JSON.parse(trimmed);
+          fire(trimmed);
+        } catch {
+          // partial buffer — keep accumulating
+        }
+      }
+      return;
+    }
+    // Plain text typed at scanner speed: complete once the burst stops.
+    const typedAt = Date.now();
+    idleTimerRef.current = setTimeout(() => {
+      idleTimerRef.current = null;
+      const perChar = (typedAt - burstStartRef.current) / Math.max(trimmed.length - 1, 1);
+      if (trimmed.length >= 4 && perChar < SCANNER_MS_PER_CHAR) fire(trimmed);
+    }, SCAN_IDLE_MS);
   };
 
   const handleBlur = () => {
